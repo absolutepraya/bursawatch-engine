@@ -22,13 +22,18 @@ owner = ROOT / "cron-x-account-watch" / "bin"
 if not owner.exists():
     owner = Path.home() / ".agents" / "skills" / "bursawatch-x-account-watch" / "bin"
 sys.path.insert(0, str(owner))
-from legacy_cursor_seed import LegacySeedBlocked, plan_catalog_revision_transition
+from legacy_cursor_seed import LegacySeedBlocked, _state_file_hashes, _write_private_json, plan_catalog_revision_transition
 from source_ingest import IntakeBlocked
 from adapter import endpoints
 from config import load_watch_config_for_run
 
 APPLY_ENV = "BURSAWATCH_X_CATALOG_TRANSITION_ALLOW_APPLY"
 REVIEWED_PROJECTION_SHA256 = "877e8fce0e374dc2c94e876455d10087298ff837071d82c19d059e0450bef3d3"
+# Revision 9 is revision 8 plus exactly the three route rows of the reviewed Serenity endpoint.
+REVIEWED_PROJECTION_SHA256_REV9 = "f33381a2d0e452493d6c2f18ec63ce27b1433991abc247758b4e53db7c7f9a48"
+GENERATION_ADDED_ENDPOINT = "x:aleabitoreddit"
+GENERATION_JOURNAL = "generation-8-to-9.json"
+GENERATION_REVISIONS = (8, 9)
 TRANSITION_TYPE = "x-compatible-catalog-transition"
 
 
@@ -60,13 +65,17 @@ def _state_root(value: Path) -> Path:
     return resolved
 
 
-def _projection(snapshot: dict[str, Any], profiles: tuple[Any, ...]) -> list[dict[str, Any]]:
+def _reviewed_projection(revision: int) -> str | None:
+    return {8: REVIEWED_PROJECTION_SHA256, 9: REVIEWED_PROJECTION_SHA256_REV9}.get(revision)
+
+
+def _projection(snapshot: dict[str, Any], profiles: tuple[Any, ...], allowed_selected: tuple[int, ...] = (8,)) -> list[dict[str, Any]]:
     try:
         selected, _ = endpoints(snapshot, tuple(p for p in profiles if p.enabled))
     except (IntakeBlocked, OSError, ValueError, KeyError, TypeError) as error:
         raise TransitionBlocked("catalog does not match reviewed enabled X profiles") from error
-    if len(selected) != 8:
-        raise TransitionBlocked("reviewed X projection must contain exactly eight enabled profiles")
+    if len(selected) not in allowed_selected:
+        raise TransitionBlocked("reviewed X projection has an unreviewed number of enabled profiles")
     rows = [row for row in snapshot.get("subscriptions", []) if type(row) is dict and row.get("platform") == "x"]
     rows.sort(key=lambda row: (row.get("endpoint_id", ""), row.get("capability_id", "")))
     return rows
@@ -172,13 +181,13 @@ def _require_x_transition_chain(root: Path, revision: int, *, allow_in_progress_
 
 
 def _fresh_generation_record(revision: int, snapshot: dict[str, Any] | None, profiles: tuple[Any, ...]) -> dict[str, Any]:
-    if revision != 8 or type(snapshot) is not dict or snapshot.get("revision") != revision:
-        raise IntakeBlocked("fresh X generation requires the reviewed revision 8 catalog")
+    if revision not in GENERATION_REVISIONS or type(snapshot) is not dict or snapshot.get("revision") != revision:
+        raise IntakeBlocked("X generation requires a reviewed catalog revision")
     try:
-        digest = _sha(_canonical(_projection(snapshot, profiles)))
+        digest = _sha(_canonical(_projection(snapshot, profiles, (8,) if revision == 8 else (9,))))
     except (TransitionBlocked, TypeError, ValueError, KeyError) as error:
         raise IntakeBlocked("fresh X generation projection is unavailable") from error
-    if digest != REVIEWED_PROJECTION_SHA256:
+    if digest != _reviewed_projection(revision):
         raise IntakeBlocked("fresh X generation projection differs from the reviewed catalog")
     return {"revision": revision, "generation": {"version": 1, "mode": "future_only", "projection_sha256": digest}}
 
@@ -232,19 +241,165 @@ def require_catalog_revision(root: Path, revision: int, bind: Any, *, snapshot: 
     if type(record) is not dict or type(record.get("revision")) is not int or record["revision"] != revision:
         raise IntakeBlocked("source catalog revision requires a package-owned transition")
     if "generation" in record:
-        if (record != _fresh_generation_record(revision, snapshot, profiles)
-            or stat.S_IMODE(root.stat().st_mode) != 0o700 or stat.S_IMODE(marker.stat().st_mode) != 0o600
-            or (root / "catalog-transitions").exists() or (root / "catalog-transitions").is_symlink()):
+        transitions = root / "catalog-transitions"
+        expected = _fresh_generation_record(revision, snapshot, profiles)
+        if (record not in (expected, _transitioned_record(expected) if revision == 9 else expected)
+            or stat.S_IMODE(root.stat().st_mode) != 0o700 or stat.S_IMODE(marker.stat().st_mode) != 0o600):
+            raise IntakeBlocked("fresh X generation record is invalid")
+        if revision == 9 and record == _transitioned_record(expected):
+            _require_generation_journal(root, record)  # a transitioned root always needs its completed journal
+        elif transitions.exists() or transitions.is_symlink():
             raise IntakeBlocked("fresh X generation record is invalid")
         return
     _require_x_transition_chain(root, revision)
 
 
+def _load_profiles() -> tuple[int, tuple[Any, ...]]:
+    try:
+        loaded = load_watch_config_for_run()
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise TransitionBlocked("current X watcher configuration is unavailable") from error
+    watcher_revision = getattr(loaded, "revision", None)
+    profiles = getattr(getattr(loaded, "config", None), "profiles", None)
+    if type(watcher_revision) is not int or watcher_revision < 1 or type(profiles) not in {tuple, list}:
+        raise TransitionBlocked("current X watcher config revision or profiles are invalid")
+    return watcher_revision, tuple(profiles)
+
+
+def _transitioned_record(fresh: dict[str, Any]) -> dict[str, Any]:
+    """The revision 9 marker written by the reviewed 8 to 9 edge records its origin."""
+    return {**fresh, "generation": {**fresh["generation"], "edge": "8-to-9"}}
+
+
+def _with_serenity(profiles: tuple[Any, ...], enabled: bool) -> tuple[Any, ...]:
+    """The edge is reviewed for Serenity off before it and on after it, whatever the live profile says now."""
+    from dataclasses import replace
+    matches = [p for p in profiles if getattr(p, "id", None) == "aleabitoreddit"]
+    if len(matches) != 1:
+        raise TransitionBlocked("the reviewed Serenity profile must exist exactly once in the watcher configuration")
+    return tuple(replace(p, enabled=enabled) if p.id == "aleabitoreddit" else p for p in profiles)
+
+
+def _is_generation_root(root: Path) -> bool:
+    try:
+        record = json.loads((Path(root).expanduser() / "catalog-revision.json").read_text())
+    except (OSError, ValueError):
+        return False
+    return type(record) is dict and "generation" in record
+
+
+def _require_generation_journal(root: Path, record: dict[str, Any]) -> None:
+    """Require the one completed reviewed 8 to 9 edge behind a transitioned generation."""
+    directory = root / "catalog-transitions"
+    if directory.is_symlink() or not directory.is_dir() or stat.S_IMODE(directory.stat().st_mode) & 0o077:
+        raise IntakeBlocked("X generation transition directory is unsafe")
+    entries = {p.name for p in directory.iterdir() if not p.name.startswith(".catalog-transition-")}
+    if entries != {GENERATION_JOURNAL}:
+        raise IntakeBlocked("X generation transition history has a gap or unexpected entry")
+    path = directory / GENERATION_JOURNAL
+    if path.is_symlink() or not path.is_file() or stat.S_IMODE(path.stat().st_mode) != 0o600:
+        raise IntakeBlocked("X generation transition journal is unsafe")
+    try:
+        journal = json.loads(path.read_text())
+        plan = journal["plan"]
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise IntakeBlocked("X generation transition journal is invalid") from error
+    plan_keys = {"version", "status", "apply", "state_root", "from_revision", "to_revision", "prior_marker_sha256", "target_marker",
+                 "projection_sha256", "added_endpoint", "prior_catalog_sha256", "target_catalog_sha256", "watch_config_revision",
+                 "state_files", "reason"}
+    if (type(journal) is not dict or set(journal) != {"version", "status", "plan"} or journal.get("version") != 1
+        or journal.get("status") != "complete" or type(plan) is not dict or set(plan) != plan_keys
+        or plan.get("version") != 1 or plan.get("status") != "preview" or plan.get("apply") is not False
+        or plan.get("state_root") != str(root.resolve()) or (plan.get("from_revision"), plan.get("to_revision")) != (8, 9)
+        or plan.get("projection_sha256") != {"prior": REVIEWED_PROJECTION_SHA256, "target": REVIEWED_PROJECTION_SHA256_REV9}
+        or plan.get("added_endpoint") != GENERATION_ADDED_ENDPOINT or plan.get("target_marker") != record
+        or any(type(plan.get(key)) is not str or re.fullmatch(r"[0-9a-f]{64}", plan[key]) is None
+               for key in ("prior_marker_sha256", "prior_catalog_sha256", "target_catalog_sha256"))
+        or type(plan.get("watch_config_revision")) is not int or type(plan.get("state_files")) is not dict):
+        raise IntakeBlocked("X generation transition journal does not prove the reviewed 8 to 9 edge")
+
+
+def _generation_plan(prior: dict[str, Any], target: dict[str, Any], root: Path) -> dict[str, Any]:
+    """Plan the reviewed X generation edge: revision 8 plus exactly the Serenity route rows."""
+    root = _state_root(root)
+    if type(prior.get("revision")) is not int or type(target.get("revision")) is not int or (prior["revision"], target["revision"]) != (8, 9):
+        raise TransitionBlocked("this package release owns only the reviewed X generation 8 to 9 edge")
+    watcher_revision, live_profiles = _load_profiles()
+    prior_profiles, target_profiles = _with_serenity(live_profiles, False), _with_serenity(live_profiles, True)
+    try:
+        prior_record = _fresh_generation_record(8, prior, prior_profiles)
+        target_record = _transitioned_record(_fresh_generation_record(9, target, target_profiles))
+        prior_rows, target_rows = _projection(prior, prior_profiles, (8,)), _projection(target, target_profiles, (9,))
+    except (IntakeBlocked, TransitionBlocked) as error:
+        raise TransitionBlocked("catalog projections differ from the reviewed X generation edge") from error
+    added = [row for row in target_rows if row not in prior_rows]
+    if (any(row not in target_rows for row in prior_rows) or len(added) != 3
+        or {row.get("endpoint_id") for row in added} != {GENERATION_ADDED_ENDPOINT}):
+        raise TransitionBlocked("catalog change is not exactly the reviewed Serenity route rows")
+    marker = root / "catalog-revision.json"
+    transitions = root / "catalog-transitions"
+    journal_path = transitions / GENERATION_JOURNAL
+    try:
+        current = json.loads(marker.read_text())
+    except (OSError, ValueError) as error:
+        raise TransitionBlocked("X generation marker is unavailable") from error
+    if stat.S_IMODE(root.stat().st_mode) != 0o700 or stat.S_IMODE(marker.stat().st_mode) != 0o600:
+        raise TransitionBlocked("X generation state root or marker is not private")
+    journal_present = journal_path.exists() or transitions.is_symlink()
+    if transitions.exists() or transitions.is_symlink():
+        if (transitions.is_symlink() or not transitions.is_dir() or stat.S_IMODE(transitions.stat().st_mode) & 0o077
+            or {p.name for p in transitions.iterdir() if not p.name.startswith(".catalog-transition-")} - {GENERATION_JOURNAL}):
+            raise TransitionBlocked("X generation transition directory is unsafe")
+    if current != prior_record and not (current == target_record and journal_present):
+        raise TransitionBlocked("X generation state is not at the reviewed prior revision")
+    try:
+        state_files = _state_file_hashes(root, {marker, journal_path})
+    except LegacySeedBlocked as error:
+        raise TransitionBlocked("X source state cannot be hashed safely") from error
+    return {
+        "version": 1, "status": "preview", "apply": False, "state_root": str(root), "from_revision": 8, "to_revision": 9,
+        "prior_marker_sha256": _sha(_canonical(prior_record)), "target_marker": target_record,
+        "projection_sha256": {"prior": REVIEWED_PROJECTION_SHA256, "target": REVIEWED_PROJECTION_SHA256_REV9},
+        "added_endpoint": GENERATION_ADDED_ENDPOINT, "prior_catalog_sha256": _sha(_canonical(prior)),
+        "target_catalog_sha256": _sha(_canonical(target)), "watch_config_revision": watcher_revision,
+        "state_files": state_files,
+        "reason": "Catalog revision 9 adds exactly the three route rows of the reviewed Serenity endpoint to the revision 8 X projection.",
+    }
+
+
+def _generation_apply(expected: dict[str, Any], prior: dict[str, Any], target: dict[str, Any], root: Path) -> dict[str, Any]:
+    current = _generation_plan(prior, target, root)
+    if expected != current:
+        raise TransitionBlocked("catalog, source state, or preview changed")
+    if os.environ.get(APPLY_ENV) != "1":
+        raise TransitionBlocked(f"apply requires {APPLY_ENV}=1")
+    root = _state_root(root)
+    marker = root / "catalog-revision.json"
+    journal_path = root / "catalog-transitions" / GENERATION_JOURNAL
+    if journal_path.exists():
+        try:
+            existing = json.loads(journal_path.read_text())
+        except (OSError, ValueError) as error:
+            raise TransitionBlocked("X generation journal is unreadable") from error
+        if type(existing) is not dict or existing.get("plan") != current or existing.get("status") not in {"applying", "complete"}:
+            raise TransitionBlocked("X generation journal differs from the reviewed plan")
+    else:
+        _write_private_json(journal_path, {"version": 1, "status": "applying", "plan": current})
+    if json.loads(marker.read_text()) != current["target_marker"]:
+        _write_private_json(marker, current["target_marker"])
+    _write_private_json(journal_path, {"version": 1, "status": "complete", "plan": current})
+    return {"status": "applied", "from_revision": 8, "to_revision": 9, "projection_sha256": REVIEWED_PROJECTION_SHA256_REV9}
+
+
 def preview(prior: dict[str, Any], target: dict[str, Any], root: Path) -> dict[str, Any]:
+    if _is_generation_root(root):
+        return _generation_plan(prior, target, root)
     return _transition_plan(prior, target, root)
 
 
 def apply(expected: dict[str, Any], prior: dict[str, Any], target: dict[str, Any], root: Path) -> dict[str, Any]:
+    if _is_generation_root(root):
+        return _generation_apply(expected, prior, target, root)
     current = _transition_plan(prior, target, root)
     if expected != current:
         raise TransitionBlocked("catalog, source state, or preview changed")
@@ -298,7 +453,8 @@ def main(argv: list[str] | None = None) -> int:
                 os.link(temporary, resolved_plan)
             finally:
                 if os.path.exists(temporary): os.unlink(temporary)
-            output = {"status": "preview", "from_revision": 7, "to_revision": 8, "projection_sha256": REVIEWED_PROJECTION_SHA256}
+            output = {"status": "preview", "from_revision": result["from_revision"], "to_revision": result["to_revision"],
+                      "projection_sha256": result["projection_sha256"]["target"] if type(result["projection_sha256"]) is dict else result["projection_sha256"]}
         else:
             if not resolved_plan.is_file() or stat.S_IMODE(resolved_plan.stat().st_mode) != 0o600:
                 raise TransitionBlocked("X catalog plan must be a private regular file")

@@ -302,6 +302,7 @@ const sourceNames: Record<string, string> = {
   wavetiga: "Wave Tiga",
   aldotjahjadi8: "IHSG Journal",
   kobeissiletter: "The Kobeissi Letter",
+  aleabitoreddit: "Serenity",
 };
 
 function emptyCatalogConfig(): CatalogConfig {

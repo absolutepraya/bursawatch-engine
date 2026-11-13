@@ -98,8 +98,26 @@ revision 8 on an existing generation requires the complete existing 5 to 7 journ
 completed package-owned 7 to 8 journal. A marker change without this chain
 blocks intake.
 
+A future-only generation root (one whose marker carries the frozen `generation`
+proof) advances to revision 9 only through the reviewed generation edge in the
+same helper. Revision 9 is revision 8 plus exactly the three route rows of the
+reviewed Serenity endpoint (`x:aleabitoreddit`); both projections are pinned
+(`REVIEWED_PROJECTION_SHA256` and `REVIEWED_PROJECTION_SHA256_REV9`).
+`preview` proves the prior and target projections, that nothing else changed,
+and fingerprints every state file; `apply` additionally needs the unchanged
+preview plan and `BURSAWATCH_X_CATALOG_TRANSITION_ALLOW_APPLY=1`. It writes the
+private `catalog-transitions/generation-8-to-9.json` journal, replaces the
+marker atomically (the revision 9 marker records `edge: 8-to-9`, so a transitioned root can never pass as a fresh one and always needs its completed journal), then completes the journal; cursors, accepted-event indexes
+and handoff work are never touched, and an interrupted apply resumes. Each later
+poll requires the completed journal. The Serenity profile and catalog rows must
+agree: an enabled catalog subscription without an enabled watcher profile (or the
+reverse) fails the run closed, so enable both before the next intake run, and the
+new endpoint bootstraps future-only like any endpoint without a cursor. The
+shared `lib-bursawatch-source-ingest/bin/unchanged_projection_transition.py`
+advances Telegram-style and RSS roots whose own projection is unchanged.
+
 An absent or empty private state root may instead begin a new future-only
-generation at revision 8. Validate the full effective X projection against
+generation at revision 8 or 9. Validate the full effective X projection against
 the same pinned hash before atomically creating its generation catalog marker.
 Stage marker bytes beside the root so a hard crash cannot leave a blocking
 temporary file inside it. Each later poll revalidates the frozen generation

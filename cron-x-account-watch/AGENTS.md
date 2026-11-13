@@ -177,21 +177,28 @@ Use this workflow:
 
 A watcher profile alone never starts intake, and a new X account cannot be
 onboarded by configuration or a data migration alone. `cron-x-source-ingest` is
-pinned to source-catalog revision 8 and to the exact effective projection of
-every X registry row (`REVIEWED_PROJECTION_SHA256`, exactly eight enabled
-profiles). Registering another X endpoint changes that projection, and any
-catalog revision above 8 has no reviewed package transition, so either one makes
-the whole X intake run fail closed for every account (Telegram intake is pinned
-to its revision-8 state marker the same way, so a revision bump stops it too).
-An enabled profile that lacks a `REVIEWED_PUBLISHERS` binding or a verified
-catalog subscription fails the run the same way. Onboarding therefore needs a
-reviewed code change first: a new reviewed X transition edge and pinned
-projection, the matching Telegram revision-only transition, and the cursor plan
-for the new endpoint. Only after that is released and its state transitions are
-applied may the registry migration, catalog overrides and live profile follow.
-The git `watches.json` and baseline are disabled seeds, so never edit them to
-activate a profile. Serenity (@aleabitoreddit) was rolled back from this path on
-2026-11-13 (migration 029); his Discord emoji already exists.
+pinned to a reviewed source-catalog revision and the exact effective projection
+of every X registry row (`REVIEWED_PROJECTION_SHA256` and
+`REVIEWED_PROJECTION_SHA256_REV9`), and the Telegram and RSS ingests are pinned
+to their state markers, so registering another X endpoint or publishing a new
+catalog revision makes the affected intake run fail closed for every account until
+each state root completes a reviewed transition. An enabled profile without a
+`REVIEWED_PUBLISHERS` binding or verified catalog subscription (and a catalog
+subscription without an enabled profile) fails the X run the same way.
+
+Onboarding therefore needs a reviewed code change first, released before the data
+change: a new pinned X projection and generation edge, the Telegram and RSS
+transitions (`compatible_catalog_transition.py` and
+`unchanged_projection_transition.py`), rehearsed on copies of the live state roots
+with the real effective catalogs. Then cut over in one sequence, started just
+after an `x-source-ingest` run (it runs every 10 minutes): release the manual
+registry migration, enable the profile in the watcher configuration, publish the
+catalog revision with the profile's overrides, then preview and apply each
+transition on the live state roots, and confirm the next heartbeats. The git
+`watches.json` and baseline are disabled seeds, so never edit them to activate a
+profile. Serenity (@aleabitoreddit) was first attempted by data changes alone on
+2026-11-13, which stopped X and Telegram intake and was rolled back (migration
+029); migration 030 and the generation edge are the reviewed path.
 
 The onboarding response must clearly separate observed facts, proposed defaults,
 and unresolved decisions. A missing custom emoji may remain an explicit empty

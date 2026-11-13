@@ -1288,3 +1288,225 @@ def test_heartbeat_uses_shared_observation_but_requires_delivery(final_status):
     assert delivery.operation.target == {"channel_id": runner.HEARTBEAT_CHANNEL_ID}
     assert delivery.operation.payload == {"content": content, "allowed_mentions": {"parse": []}}
     assert delivery.waited == [(delivery.operation.key, DELIVERY_RECEIPT_WAIT_SECONDS)]
+
+
+# --- Reviewed generation edge: catalog revision 8 to 9 (Serenity) -----------------
+
+SERENITY = "x:aleabitoreddit"
+BASE_ENABLED = {"kutekians", "rickyho1989", "writingtorch", "arvinhonami", "doktermarket", "txthariansaham", "aldotjahjadi8", "kobeissiletter"}
+
+
+def _generation_world(monkeypatch):
+    configured = load_watch_config(ROOT / "cron-x-account-watch/config/watches.json")
+    profiles = tuple(replace(p, enabled=p.id in BASE_ENABLED, source="rsshub") for p in configured.profiles)
+    profiles9 = tuple(replace(p, enabled=True) if p.id == "aleabitoreddit" else p for p in profiles)
+
+    def route_rows(profile, enabled_routes):
+        return [{
+            "platform": "x", "endpoint_id": f"x:{profile.handle.casefold()}", "publisher_id": REVIEWED_PUBLISHERS[profile.id],
+            "address": profile.handle, "provider_id": None, "capability_id": capability, "verification_status": "verified",
+            "enabled": capability in enabled_routes,
+        } for capability in ("company_news", "macro_news", "swing_chart_context")]
+
+    prior_rows, serenity_rows = [], []
+    for profile in profiles:
+        if profile.id == "aleabitoreddit":
+            serenity_rows = route_rows(profile, {"company_news", "macro_news"})
+        else:
+            prior_rows += route_rows(profile, {"company_news", "macro_news"} if profile.id in BASE_ENABLED else set())
+    key = lambda row: (row["endpoint_id"], row["capability_id"])
+    prior_rows.sort(key=key)
+    target_rows = sorted(prior_rows + serenity_rows, key=key)
+    sha = lambda rows: hashlib.sha256(x_transition._canonical(rows)).hexdigest()
+    monkeypatch.setattr(x_transition, "REVIEWED_PROJECTION_SHA256", sha(prior_rows))
+    monkeypatch.setattr(x_transition, "REVIEWED_PROJECTION_SHA256_REV9", sha(target_rows))
+    monkeypatch.setattr(x_transition, "load_watch_config_for_run",
+                        lambda: SimpleNamespace(revision=17, config=SimpleNamespace(profiles=profiles)))
+    return profiles, profiles9, {"revision": 8, "subscriptions": prior_rows}, {"revision": 9, "subscriptions": target_rows}
+
+
+def _fetch_one(profile, **_kwargs):
+    return [SourcePost(profile.id, "10", f"https://x.com/{profile.handle}/status/10", NOW,
+                       "<p>Market</p>", PostKind.NORMAL, None, None, (), ())]
+
+
+def _bootstrapped_generation_root(tmp_path, profiles, prior):
+    root = tmp_path / "source"
+    inbox = Inbox()
+    run_once(prior, profiles, root, inbox, NOW, fetch_profile=_fetch_one)
+    assert inbox.events == []
+    return root
+
+
+def _cursor_bytes(root):
+    return {str(p.relative_to(root)): p.read_bytes() for p in root.rglob("cursor.json")}
+
+
+def test_generation_edge_moves_revision_8_to_9_without_touching_cursors(tmp_path, monkeypatch):
+    profiles, profiles9, prior, target = _generation_world(monkeypatch)
+    root = _bootstrapped_generation_root(tmp_path, profiles, prior)
+    before = _cursor_bytes(root)
+    assert len(before) == 8
+
+    plan = x_transition.preview(prior, target, root)
+    assert (plan["from_revision"], plan["to_revision"], plan["added_endpoint"]) == (8, 9, SERENITY)
+    assert _cursor_bytes(root) == before
+    with pytest.raises(x_transition.TransitionBlocked):
+        x_transition.apply(plan, prior, target, root)  # guard variable absent
+    assert json.loads((root / "catalog-revision.json").read_text())["revision"] == 8
+
+    monkeypatch.setenv(x_transition.APPLY_ENV, "1")
+    assert x_transition.apply(plan, prior, target, root)["to_revision"] == 9
+    marker = root / "catalog-revision.json"
+    record = json.loads(marker.read_text())
+    assert record["revision"] == 9 and record["generation"]["projection_sha256"] == x_transition.REVIEWED_PROJECTION_SHA256_REV9
+    assert oct(marker.stat().st_mode & 0o777) == "0o600"
+    journal = json.loads((root / "catalog-transitions" / x_transition.GENERATION_JOURNAL).read_text())
+    assert journal["status"] == "complete" and journal["plan"]["target_marker"] == record
+    assert _cursor_bytes(root) == before
+    assert x_transition.apply(plan, prior, target, root)["status"] == "applied"  # re-apply is idempotent
+
+    x_transition.require_catalog_revision(root, 9, lambda *_a: None, snapshot=target, profiles=profiles9)
+    with pytest.raises(IntakeBlocked):
+        x_transition.require_catalog_revision(root, 8, lambda *_a: None, snapshot=prior, profiles=profiles)
+
+
+def test_generation_edge_new_endpoint_bootstraps_future_only_after_enable(tmp_path, monkeypatch):
+    profiles, profiles9, prior, target = _generation_world(monkeypatch)
+    root = _bootstrapped_generation_root(tmp_path, profiles, prior)
+    monkeypatch.setenv(x_transition.APPLY_ENV, "1")
+    x_transition.apply(x_transition.preview(prior, target, root), prior, target, root)
+    inbox = Inbox()
+    outcomes = run_once(target, profiles9, root, inbox, NOW, fetch_profile=_fetch_one)
+    by_endpoint = {row["endpoint_id"]: row for row in outcomes}
+    assert len(outcomes) == 9
+    assert by_endpoint[SERENITY]["status"] == "bootstrapped" and by_endpoint[SERENITY]["accepted"] == 0
+    assert all(row["accepted"] == 0 for row in outcomes) and inbox.events == []
+    assert (root / "x-aleabitoreddit" / "cursor.json").is_file()
+
+
+def test_generation_edge_apply_resumes_after_interruption(tmp_path, monkeypatch):
+    profiles, profiles9, prior, target = _generation_world(monkeypatch)
+    root = _bootstrapped_generation_root(tmp_path, profiles, prior)
+    monkeypatch.setenv(x_transition.APPLY_ENV, "1")
+    plan = x_transition.preview(prior, target, root)
+    real = x_transition._write_private_json
+    marker = root / "catalog-revision.json"
+
+    def crash_on_marker(path, value):
+        if path == marker:
+            raise OSError("simulated crash before the marker is replaced")
+        return real(path, value)
+
+    monkeypatch.setattr(x_transition, "_write_private_json", crash_on_marker)
+    with pytest.raises(OSError):
+        x_transition.apply(plan, prior, target, root)
+    assert json.loads(marker.read_text())["revision"] == 8
+    journal = root / "catalog-transitions" / x_transition.GENERATION_JOURNAL
+    assert json.loads(journal.read_text())["status"] == "applying"
+    with pytest.raises(IntakeBlocked):  # a half-applied root never serves intake at revision 9
+        x_transition.require_catalog_revision(root, 9, lambda *_a: None, snapshot=target, profiles=profiles9)
+    monkeypatch.setattr(x_transition, "_write_private_json", real)
+    resumed = x_transition.preview(prior, target, root)
+    assert resumed == plan
+    assert x_transition.apply(resumed, prior, target, root)["status"] == "applied"
+    x_transition.require_catalog_revision(root, 9, lambda *_a: None, snapshot=target, profiles=profiles9)
+
+
+@pytest.mark.parametrize("change", ["extra_row_changed", "other_endpoint_added", "prior_row_missing", "wrong_revision"])
+def test_generation_edge_rejects_anything_but_the_reviewed_serenity_rows(tmp_path, monkeypatch, change):
+    profiles, profiles9, prior, target = _generation_world(monkeypatch)
+    root = _bootstrapped_generation_root(tmp_path, profiles, prior)
+    bad = json.loads(json.dumps(target))
+    if change == "extra_row_changed":
+        bad["subscriptions"][0]["settings"] = {"changed": True}
+    elif change == "other_endpoint_added":
+        bad["subscriptions"].append(dict(bad["subscriptions"][0], endpoint_id="x:someoneelse"))
+    elif change == "prior_row_missing":
+        bad["subscriptions"].pop(0)
+    else:
+        bad["revision"] = 10
+    with pytest.raises(x_transition.TransitionBlocked):
+        x_transition.preview(prior, bad, root)
+    assert json.loads((root / "catalog-revision.json").read_text())["revision"] == 8
+
+
+def test_generation_edge_rejects_changed_state_between_preview_and_apply(tmp_path, monkeypatch):
+    profiles, profiles9, prior, target = _generation_world(monkeypatch)
+    root = _bootstrapped_generation_root(tmp_path, profiles, prior)
+    plan = x_transition.preview(prior, target, root)
+    cursor = next(root.rglob("cursor.json"))
+    cursor.write_bytes(cursor.read_bytes() + b" ")
+    monkeypatch.setenv(x_transition.APPLY_ENV, "1")
+    with pytest.raises(x_transition.TransitionBlocked):
+        x_transition.apply(plan, prior, target, root)
+    assert json.loads((root / "catalog-revision.json").read_text())["revision"] == 8
+    assert not (root / "catalog-transitions").exists()
+
+
+@pytest.mark.parametrize("tamper", ["status", "extra_entry", "journal_marker", "permission", "symlink"])
+def test_generation_edge_runtime_rejects_tampered_journal(tmp_path, monkeypatch, tamper):
+    profiles, profiles9, prior, target = _generation_world(monkeypatch)
+    root = _bootstrapped_generation_root(tmp_path, profiles, prior)
+    monkeypatch.setenv(x_transition.APPLY_ENV, "1")
+    x_transition.apply(x_transition.preview(prior, target, root), prior, target, root)
+    directory = root / "catalog-transitions"
+    journal = directory / x_transition.GENERATION_JOURNAL
+    data = json.loads(journal.read_text())
+    if tamper == "status":
+        data["status"] = "applying"
+        journal.write_text(json.dumps(data))
+    elif tamper == "journal_marker":
+        data["plan"]["target_marker"]["generation"]["projection_sha256"] = "0" * 64
+        journal.write_text(json.dumps(data))
+    elif tamper == "extra_entry":
+        (directory / "unexpected.json").write_text("{}")
+    elif tamper == "permission":
+        journal.chmod(0o644)
+    else:
+        moved = root / "elsewhere"
+        directory.rename(moved)
+        directory.symlink_to(moved, target_is_directory=True)
+    with pytest.raises(IntakeBlocked):
+        x_transition.require_catalog_revision(root, 9, lambda *_a: None, snapshot=target, profiles=profiles9)
+
+
+def test_generation_edge_fresh_generation_may_start_at_reviewed_revision_9(tmp_path, monkeypatch):
+    profiles, profiles9, _prior, target = _generation_world(monkeypatch)
+    root = tmp_path / "fresh9"
+    outcomes = run_once(target, profiles9, root, Inbox(), NOW, fetch_profile=_fetch_one)
+    assert len(outcomes) == 9 and all(row["status"] == "bootstrapped" for row in outcomes)
+    assert json.loads((root / "catalog-revision.json").read_text())["revision"] == 9
+    assert not (root / "catalog-transitions").exists()
+
+
+def test_generation_edge_revision_9_fails_closed_unless_serenity_profile_and_catalog_agree(tmp_path, monkeypatch):
+    profiles, profiles9, prior, target = _generation_world(monkeypatch)
+    root = _bootstrapped_generation_root(tmp_path, profiles, prior)
+    monkeypatch.setenv(x_transition.APPLY_ENV, "1")
+    x_transition.apply(x_transition.preview(prior, target, root), prior, target, root)
+    before = _cursor_bytes(root)
+    # catalog enables Serenity but the watcher profile is still off
+    with pytest.raises(IntakeBlocked):
+        run_once(target, profiles, root, Inbox(), NOW, fetch_profile=_fetch_one)
+    # watcher profile on, catalog subscription still absent
+    with pytest.raises(IntakeBlocked):
+        run_once(prior, profiles9, root, Inbox(), NOW, fetch_profile=_fetch_one)
+    assert _cursor_bytes(root) == before
+
+
+def test_generation_edge_runtime_requires_the_journal_even_if_the_directory_is_removed(tmp_path, monkeypatch):
+    import shutil
+    profiles, profiles9, prior, target = _generation_world(monkeypatch)
+    root = _bootstrapped_generation_root(tmp_path, profiles, prior)
+    monkeypatch.setenv(x_transition.APPLY_ENV, "1")
+    x_transition.apply(x_transition.preview(prior, target, root), prior, target, root)
+    marker = json.loads((root / "catalog-revision.json").read_text())
+    assert marker["generation"]["edge"] == "8-to-9"
+    shutil.rmtree(root / "catalog-transitions")
+    with pytest.raises(IntakeBlocked):
+        x_transition.require_catalog_revision(root, 9, lambda *_a: None, snapshot=target, profiles=profiles9)
+    # a genuine fresh revision 9 generation (no origin) still needs no journal and rejects one
+    fresh = tmp_path / "fresh9"
+    run_once(target, profiles9, fresh, Inbox(), NOW, fetch_profile=_fetch_one)
+    assert "edge" not in json.loads((fresh / "catalog-revision.json").read_text())["generation"]
