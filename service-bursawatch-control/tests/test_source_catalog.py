@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 import ast
 import json
+import re
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -289,3 +290,19 @@ def test_x_route_migration_preserves_existing_subscription_intent_and_work():
     assert "compatibility.capability_id in ('company_news', 'macro_news', 'swing_chart_context')" in sql
     assert "publisher_defaults" not in sql and "endpoint_overrides" not in sql
     assert "delete from" not in sql and "truncate " not in sql and "drop " not in sql
+
+
+def test_every_x_endpoint_registered_by_a_migration_is_put_in_the_route_group():
+    # The stored dispatch_group column is not derived from the endpoint platform, so a
+    # migration that registers an X endpoint after 017 must set it explicitly.
+    root = Path(__file__).resolve().parents[1] / "migrations"
+    registered = {
+        endpoint_id
+        for name in ("027_x_serenity_source.sql",)
+        for endpoint_id in re.findall(r"values \('(x:[a-z0-9_]+)', 'x-", (root / name).read_text())
+    }
+    grouped = (root / "028_x_serenity_dispatch_group.sql").read_text()
+    assert registered == {"x:aleabitoreddit"}
+    for endpoint_id in registered:
+        assert f"endpoint_id = '{endpoint_id}'" in grouped
+    assert "set dispatch_group = 'x_post_route'" in grouped
