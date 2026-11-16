@@ -18,12 +18,12 @@ import time
 VERSION = "stock-news-v1"
 LIMIT = 2000
 MARKER = "*(Ringkasan)* "
-GREEN = "<:green:1531274822221434911>"
-RED = "<:red:1531274756853202974>"
-GREY = "<:grey:1531279158913536182>"
-UP = "<:up:1531285100346740766>"
-DOWN = "<:down:1531285063986053200>"
-HOLD = "<:hold:1531284248235868333>"
+GREEN = "<:green:1571819335603855533>"
+RED = "<:red:1571819329304006716>"
+GREY = "<:grey:1571819341568147527>"
+UP = "<:up:1571819360069357651>"
+DOWN = "<:down:1571819353643683925>"
+HOLD = "<:hold:1571819347809148989>"
 from writing_contract import COMMON_WRITING_INSTRUCTION, PresentationCategory, category_instruction
 
 _subject_bin = Path(__file__).resolve().parents[2] / "lib-news-classification" / "bin"

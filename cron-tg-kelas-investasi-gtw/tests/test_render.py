@@ -32,7 +32,7 @@ def test_render_matches_approved_all_swing_layout() -> None:
     text = render_event(event())[0]
 
     assert text == (
-        "### <:kelasinvestasi:1536570114772574218> CTRA: Akumulasi kuat di area breakout\n"
+        "### <:kelasinvestasi:1571819433503105035> CTRA: Akumulasi kuat di area breakout\n"
         "-# Kelas Investasi GTW\n\n"
         "*(Ringkasan)* Ringkasan tervalidasi.\n\n"
         "**Buy area:** 605 sampai 630\n"
@@ -46,7 +46,7 @@ def test_render_matches_approved_all_swing_layout() -> None:
 def test_render_includes_neutral_gtw_status_and_board_link_for_all_copy() -> None:
     text = render_event(event(source_published_at="2026-09-19T06:50:00+07:00"))[0]
 
-    assert "**Source status:** Good to watch <:grey:1531279158913536182>" in text
+    assert "**Source status:** Good to watch <:grey:1571819341568147527>" in text
     assert "**Last updated:** 19 Sep 2026 06:50 WIB" in text
     assert "**Board:** <#1548273399069933720>" in text
 
@@ -54,7 +54,7 @@ def test_render_includes_neutral_gtw_status_and_board_link_for_all_copy() -> Non
 def test_render_omits_board_link_for_board_copy() -> None:
     text = render_event(event(source_published_at="2026-09-19T06:50:00+07:00"), include_board=False)[0]
 
-    assert "**Source status:** Good to watch <:grey:1531279158913536182>" in text
+    assert "**Source status:** Good to watch <:grey:1571819341568147527>" in text
     assert "**Board:**" not in text
 
 

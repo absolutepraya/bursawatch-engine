@@ -15,11 +15,11 @@ def profile(**overrides):
         "channel_jid": "12345@newsletter",
         "channel_url": "https://whatsapp.com/channel/0029Example",
         "display_name": "BRI Danareksa Sekuritas",
-        "emoji": "<:bridanareksa:1551797903927025797>",
+        "emoji": "<:bridanareksa:1571819579473399858>",
         "status_emojis": {
-            "up": "<:up:1531285100346740766>",
-            "down": "<:down:1531285063986053200>",
-            "hold": "<:hold:1531284248235868333>",
+            "up": "<:up:1571819360069357651>",
+            "down": "<:down:1571819353643683925>",
+            "hold": "<:hold:1571819347809148989>",
         },
         "discord_channels": [{"key": "macro_news", "channel_id": "1505162000420835388", "description": "Macro and market news"}],
         "forward_media": True,
@@ -45,7 +45,7 @@ def test_loads_strict_profile(tmp_path):
     result = load(write_config(tmp_path, [profile()]))
     assert result.profiles[0].channel_jid.endswith("@newsletter")
     assert result.profiles[0].uses_llm is True
-    assert result.profiles[0].status_emojis.hold == "<:hold:1531284248235868333>"
+    assert result.profiles[0].status_emojis.hold == "<:hold:1571819347809148989>"
 
 
 def test_live_config_snapshot_is_validated_once(tmp_path, monkeypatch):

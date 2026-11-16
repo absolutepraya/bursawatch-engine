@@ -221,7 +221,7 @@ def test_bach_issuer_heading_reaches_stock_destination_through_source_owner(tmp_
     assert result["news_delivered"] == 1
     delivered = load_state()["stats"]["delivery_payloads"][item["candidate_key"]]
     assert delivered["channel_id"] == "1525102508714889257"
-    assert delivered["content"].splitlines()[0] == "### <:phintraco:1531272488645038091> BACH Laba tumbuh 32,05% pada 9M26"
+    assert delivered["content"].splitlines()[0] == "### <:phintraco:1571819323188842629> BACH Laba tumbuh 32,05% pada 9M26"
     assert "Harga terakhir (IDR)" not in delivered["content"]
     assert "https://t.me/phintasprofits/36061" in delivered["content"]
 
@@ -270,7 +270,7 @@ def test_phintraco_news_sibling_work_claims_one_frozen_agent_item_and_renders_go
     result = asyncio.run(scan.submit_classification_payload(payload, now + timedelta(seconds=30)))
     assert result["news_delivered"] == 1
     delivered = load_state()["stats"]["delivery_payloads"][item["candidate_key"]]
-    assert delivered["content"].startswith("### <:phintraco:1531272488645038091> DEWA Kontrak bernilai Rp22 triliun\n-# Phintraco")
+    assert delivered["content"].startswith("### <:phintraco:1571819323188842629> DEWA Kontrak bernilai Rp22 triliun\n-# Phintraco")
     assert "*(Ringkasan)* DEWA mendapat kontrak bernilai Rp22 triliun." in delivered["content"]
     assert "Harga terakhir (IDR)" not in delivered["content"]
     assert "https://t.me/phintasprofits/35390" in delivered["content"]
@@ -467,7 +467,7 @@ def test_stock_status_uses_existing_parser_renderer_and_owner_ledger(tmp_path, m
     record = load_state()["stats"]["stock_status_events"]["phintraco-stock-status:35377"]
     assert record["phase"] == "delivered"
     assert record["content"] == (
-        "### <:phintraco:1531272488645038091> STOCK STATUS: Mon, 05 Oct 2026\n\n"
+        "### <:phintraco:1571819323188842629> STOCK STATUS: Mon, 05 Oct 2026\n\n"
         "**UMA:**\n(None)\n\n"
         "**Suspend In:**\n(None)\n\n"
         "**Suspend Out:**\n- WAPO\n- NASI\n\n"

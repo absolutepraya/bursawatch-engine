@@ -88,11 +88,11 @@ def test_paragraphs_survive_submission_reload_and_shared_card(provider, route, q
             assert content.count(f"{horizon}:") == 1
         if quote is None:
             assert "Harga terakhir (IDR): **-**" in content
-            assert content.count("<:grey:1531279158913536182>") == 4
+            assert content.count("<:grey:1571819341568147527>") == 4
         else:
             assert "Harga terakhir (IDR): **472**" in content
-            assert "<:green:1531274822221434911> 1D: **+32 (+7.27%)**" in content
-            assert "<:red:1531274756853202974> 1W: **-18 (-3.67%)**" in content
+            assert "<:green:1571819335603855533> 1D: **+32 (+7.27%)**" in content
+            assert "<:red:1571819329304006716> 1W: **-18 (-3.67%)**" in content
             expected_month = "**-**" if quote.one_month_change is None else "**+10 (+2.16%)**"
             assert f"1M: {expected_month}" in content
             assert "3M: **+100 (+26.88%)**" in content

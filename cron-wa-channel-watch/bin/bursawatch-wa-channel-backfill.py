@@ -26,7 +26,7 @@ import render
 
 BRI_PROFILE_ID = "bri-danareksa-sekuritas"
 BRI_SWING_CHANNEL_ID = "1525102458253217803"
-BRI_EMOJI_IDS = {"1549256273109848124", "1551797903927025797"}
+BRI_EMOJI_IDS = {"1549256273109848124", "1551797903927025797", "1571819579473399858"}
 BRI_LEGACY_EMOJI = ":bridanareksa:"
 MANIFEST_VERSION = 1
 _ID_RE = re.compile(r"^[0-9]{15,22}$")
@@ -215,11 +215,11 @@ def _profile_for_render():
         channel_jid="placeholder@newsletter",
         channel_url=swing_board.BRI_CHANNEL_URL,
         display_name="BRI Danareksa Sekuritas",
-        emoji="<:bridanareksa:1551797903927025797>",
+        emoji="<:bridanareksa:1571819579473399858>",
         status_emojis=StatusEmojis(
-            up="<:up:1531285100346740766>",
-            down="<:down:1531285063986053200>",
-            hold="<:hold:1531284248235868333>",
+            up="<:up:1571819360069357651>",
+            down="<:down:1571819353643683925>",
+            hold="<:hold:1571819347809148989>",
         ),
         discord_channels=(DiscordChannel("id_stocks_swing", BRI_SWING_CHANNEL_ID, "IDX swing"),),
         forward_media=True,

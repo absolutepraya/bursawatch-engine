@@ -28,14 +28,14 @@ def test_primary_card_uses_ticker_first_and_live_fields() -> None:
     event = replace(
         example_buy_event(),
         all_content=(
-            "### <:phintraco:1531272488645038091> SCMA: Buy\n"
+            "### <:phintraco:1571819323188842629> SCMA: Buy\n"
             "-# Alrich Paskalis T, Investment Advisor"
         ),
     )
     card = render_primary_card(event, checkpoint)
 
     assert card.startswith(
-        "### <:phintraco:1531272488645038091> SCMA: Buy\n"
+        "### <:phintraco:1571819323188842629> SCMA: Buy\n"
         "-# Alrich Paskalis T, Phintraco Sekuritas\n\n"
     )
     assert "**Entry:** 208 to 212" in card
@@ -53,7 +53,7 @@ def test_primary_card_uses_firm_byline_when_source_has_none() -> None:
     card = render_primary_card(example_buy_event())
 
     assert card.startswith(
-        "### <:phintraco:1531272488645038091> SCMA: Buy\n"
+        "### <:phintraco:1571819323188842629> SCMA: Buy\n"
         "-# Phintraco Sekuritas\n\n"
     )
     assert "Alrich Paskalis T" not in card

@@ -11,7 +11,7 @@ from datetime import datetime
 from swing_format import SwingMessage
 
 
-BRI_DANAREKSA_EMOJI = "<:bridanareksa:1551797903927025797>"
+BRI_DANAREKSA_EMOJI = "<:bridanareksa:1571819579473399858>"
 
 
 def build_message(

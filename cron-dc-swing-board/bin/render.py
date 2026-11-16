@@ -26,7 +26,7 @@ from swing_format import (  # noqa: E402
 
 
 WIB = ZoneInfo("Asia/Jakarta")
-PHINTRACO_EMOJI = "<:phintraco:1531272488645038091>"
+PHINTRACO_EMOJI = "<:phintraco:1571819323188842629>"
 _MARKDOWN = re.compile(r"([\\*_~`|\[\]()])")
 _BYLINE = re.compile(r"^-#\s+(.+?)\s*$", re.MULTILINE)
 _REASONS = re.compile(r"^\*\*Reasons:\*\*\s*(.+?)\s*$", re.MULTILINE)

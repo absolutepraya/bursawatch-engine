@@ -17,8 +17,8 @@ WATCHLIST = {'KOSPI': ('^KS11','Asia/Seoul','points'),
              'EIDO': ('EIDO','America/New_York','USD'),
              'USDIDR': ('IDR=X',None,'IDR per USD')}
 MAX_GLOBAL_ROWS = len(WATCHLIST)
-GREEN = '<:green:1531274822221434911>'
-RED = '<:red:1531274756853202974>'
+GREEN = '<:green:1571819335603855533>'
+RED = '<:red:1571819329304006716>'
 
 
 def _instant(value):

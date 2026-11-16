@@ -23,16 +23,16 @@ def test_text_plan_uses_existing_owner_and_exact_render(tmp_state, monkeypatch):
     assert pipeline_owner._receipt_path(effect).exists()
     assert len(sent) == 1
     assert sent[0] == (
-        "### <:phintraco:1531272488645038091> SCMA: Buy\n"
+        "### <:phintraco:1571819323188842629> SCMA: Buy\n"
         "-# Alrich Paskalis T, Phintraco Sekuritas\n\n"
-        "**Type:** Trading Buy <:up:1531285100346740766>\n"
+        "**Type:** Trading Buy <:up:1571819360069357651>\n"
         "**Entry:** 208 to 212\n"
         "**Stop-loss:** <200\n"
         "**Target 1:** 230\n"
         "**Signal date:** 10 Jul 2026 07:00 WIB\n\n"
         "**Reasons:** Konsolidasi bertahan di atas support area 200 menjaga peluang rebound hingga minor uptrend lanjutan. MACD yang konsisten membentuk histogram positif sejalan dengan peluang tersebut.\n"
         "**Chart:** Unavailable from source\n\n"
-        "**Source status:** New setup <:grey:1531279158913536182>\n"
+        "**Source status:** New setup <:grey:1571819341568147527>\n"
         "**Last updated:** 10 Jul 2026 07:00 WIB\n"
         "**Board:** <#1548273399069933720>\n\n"
         "[View in Telegram](<https://t.me/phintasprofits/40001>)",

@@ -77,7 +77,7 @@ Every profile has this reviewed shape:
   "profile_url":"https://x.com/example_writer",
   "handle":"example_writer",
   "display_name":"Example Writer",
-  "twitter_emoji":"<:twitter:1531672630602498129>",
+  "twitter_emoji":"<:twitter:1571819395527737445>",
   "emoji":"<:examplewriter:123456789012345678>",
   "discord_channels":[{"key":"macro_news","channel_id":"1531655369884045382","description":"Broad market analysis."}],
   "forward_normal_post":true,

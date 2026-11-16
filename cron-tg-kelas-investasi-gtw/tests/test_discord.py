@@ -166,7 +166,7 @@ def test_gtw_board_adapter_creates_a_no_post_supporting_episode_with_current_for
         assert create.status == "complete"
         assert create.payload["tag_names"] == ["Supporting setup"]
         assert create.payload["content"] == payload["all_content"]
-        assert "**Source status:** Good to watch <:grey:1531279158913536182>" in create.payload["content"]
+        assert "**Source status:** Good to watch <:grey:1571819341568147527>" in create.payload["content"]
         assert "**Last updated:** 11 Aug 2026 09:00 WIB" in create.payload["content"]
         assert "**Board:**" not in create.payload["content"]
         assert all(operation.status == "complete" for operation in operations)

@@ -76,7 +76,7 @@ def test_parse_hold_trading_buy_as_a_buy_subtype():
     assert [(target.number, target.value) for target in call.targets] == [(1, "4700"), (2, "5000")]
     assert call.signal_datetime == published_at
     assert "AMMN: Buy" in scan.format_swing_alert(call, include_board=False)
-    assert "**Type:** Hold/Trading Buy <:up:1531285100346740766>" in scan.format_swing_alert(
+    assert "**Type:** Hold/Trading Buy <:up:1571819360069357651>" in scan.format_swing_alert(
         call, include_board=False
     )
 
@@ -161,16 +161,16 @@ def test_malformed_buy_candidate_is_detectable():
 def test_format_chart_backed_alert_exact():
     call = scan.parse_swing_call(33655, fixture("trading_buy.txt"), has_photo=True)
     assert scan.format_swing_alert(call) == (
-        "### <:phintraco:1531272488645038091> SCMA: Buy\n"
+        "### <:phintraco:1571819323188842629> SCMA: Buy\n"
         "-# Alrich Paskalis T, Phintraco Sekuritas\n\n"
-        "**Type:** Trading Buy <:up:1531285100346740766>\n"
+        "**Type:** Trading Buy <:up:1571819360069357651>\n"
         "**Entry:** 208 to 212\n"
         "**Stop-loss:** <200\n"
         "**Target:** 230\n"
         "**Signal date:** 10 Jul 2026 07:00 WIB\n\n"
         "**Reasons:** Konsolidasi bertahan di atas support area 200 menjaga peluang rebound hingga minor uptrend lanjutan. "
         "MACD yang konsisten membentuk histogram positif sejalan dengan peluang tersebut.\n\n"
-        "**Source status:** New setup <:grey:1531279158913536182>\n"
+        "**Source status:** New setup <:grey:1571819341568147527>\n"
         "**Last updated:** 10 Jul 2026 07:00 WIB\n"
         "**Board:** <#1548273399069933720>\n\n"
         "[View in Telegram](<https://t.me/phintasprofits/33655>)"
@@ -180,7 +180,7 @@ def test_format_chart_backed_alert_exact():
 def test_buy_alert_is_ticker_first_with_byline_and_telegram_footer() -> None:
     output = scan.format_swing_alert(sample_call())
     assert output.startswith(
-        "### <:phintraco:1531272488645038091> SCMA: Buy\n"
+        "### <:phintraco:1571819323188842629> SCMA: Buy\n"
         "-# Alrich Paskalis T, Phintraco Sekuritas\n\n"
     )
     assert "**Signal date:** 10 Jul 2026 07:00 WIB" in output
@@ -198,9 +198,9 @@ def test_future_sell_alert_uses_down_marker():
     buy_call = scan.parse_swing_call(33655, fixture("trading_buy.txt"), has_photo=True)
     sell_call = scan.SwingCall(**{**buy_call.__dict__, "event_kind": "SELL"})
     assert scan.format_swing_alert(sell_call).startswith(
-        "### <:phintraco:1531272488645038091> SCMA: Sell\n"
+        "### <:phintraco:1571819323188842629> SCMA: Sell\n"
         "-# Alrich Paskalis T, Phintraco Sekuritas\n\n"
-        "**Type:** Trading Buy <:down:1531285063986053200>"
+        "**Type:** Trading Buy <:down:1571819353643683925>"
     )
 
 
@@ -257,15 +257,15 @@ def test_dynamic_spoiler_and_masked_link_markdown_is_escaped(source, escaped):
 def test_canonical_fixture_output_is_unchanged_when_no_escape_is_needed():
     call = scan.parse_swing_call(33655, fixture("trading_buy.txt"), has_photo=True)
     assert scan.format_swing_alert(call) == (
-        "### <:phintraco:1531272488645038091> SCMA: Buy\n"
+        "### <:phintraco:1571819323188842629> SCMA: Buy\n"
         "-# Alrich Paskalis T, Phintraco Sekuritas\n\n"
-        "**Type:** Trading Buy <:up:1531285100346740766>\n"
+        "**Type:** Trading Buy <:up:1571819360069357651>\n"
         "**Entry:** 208 to 212\n"
         "**Stop-loss:** <200\n"
         "**Target:** 230\n"
         "**Signal date:** 10 Jul 2026 07:00 WIB\n\n"
         "**Reasons:** Konsolidasi bertahan di atas support area 200 menjaga peluang rebound hingga minor uptrend lanjutan. MACD yang konsisten membentuk histogram positif sejalan dengan peluang tersebut.\n\n"
-        "**Source status:** New setup <:grey:1531279158913536182>\n"
+        "**Source status:** New setup <:grey:1571819341568147527>\n"
         "**Last updated:** 10 Jul 2026 07:00 WIB\n"
         "**Board:** <#1548273399069933720>\n\n"
         "[View in Telegram](<https://t.me/phintasprofits/33655>)"
@@ -288,7 +288,7 @@ def test_parse_target_reminder_and_format_source_link():
     assert event.event_kind == "REMINDER"
     assert event.outcomes == ("First target 5000 achieved",)
     assert scan.format_swing_alert(event).startswith(
-        "### <:phintraco:1531272488645038091> INCO: First target 5000 achieved\n"
+        "### <:phintraco:1571819323188842629> INCO: First target 5000 achieved\n"
         "-# Nauval Maulana, Phintraco Sekuritas\n\n"
     )
     assert scan.format_swing_alert(event).endswith(
@@ -408,13 +408,13 @@ def test_on_support_update_uses_common_status_format_and_source_timestamp():
         (2, "640"),
     ]
     assert scan.format_swing_alert(event) == (
-        "### <:phintraco:1531272488645038091> BRMS: On support\n"
+        "### <:phintraco:1571819323188842629> BRMS: On support\n"
         "-# Alrich Paskalis T, Phintraco Sekuritas\n\n"
         "**Entry:** >=540\n"
         "**Stop-loss:** <520\n"
         "**Target 1:** 590 to 600\n"
         "**Target 2:** 640\n"
-        "\n**Source status:** On support <:hold:1531284248235868333>\n"
+        "\n**Source status:** On support <:hold:1571819347809148989>\n"
         "**Last updated:** 17 Jul 2026 10:11 WIB\n"
         "**Board:** <#1548273399069933720>\n\n"
         "[View in Telegram](<https://t.me/phintasprofits/33801>)"
@@ -496,9 +496,9 @@ def test_reply_status_requires_matching_parent_swing_plan():
     assert event.status == "On track"
     assert event.signal_datetime == dt.datetime(2026, 7, 15, 10, 55, 48, tzinfo=scan.WIB)
     assert scan.format_swing_alert(event) == (
-        "### <:phintraco:1531272488645038091> ESSA: On track\n"
+        "### <:phintraco:1571819323188842629> ESSA: On track\n"
         "-# Phintraco Sekuritas\n\n"
-        "**Source status:** On track <:hold:1531284248235868333>\n"
+        "**Source status:** On track <:hold:1571819347809148989>\n"
         "**Last updated:** 15 Jul 2026 10:55 WIB\n"
         "**Board:** <#1548273399069933720>\n\n"
         "[View in Telegram](<https://t.me/phintasprofits/33735>)"

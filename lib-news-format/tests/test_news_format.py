@@ -18,15 +18,15 @@ import news_format as news
     ('2027 🔼', 'macro_news', '2027 🔼'),
 ])
 def test_new_card_headline_preserves_names_and_capitalizes_subject(title, route, expected):
-    heading = f'### <:source:1531272430985937086> {title}\n-# Publisher'
+    heading = f'### <:source:1571819316977082409> {title}\n-# Publisher'
     rendered = news.render_card(heading, 'Fakta bersumber.', 'https://example.invalid/news', 'Source', route=route)
-    assert rendered[0].splitlines()[0] == f'### <:source:1531272430985937086> {expected}'
+    assert rendered[0].splitlines()[0] == f'### <:source:1571819316977082409> {expected}'
     assert rendered[0].splitlines()[1] == '-# Publisher'
 
 
 def test_freezing_normalizes_new_title_without_mutating_submission_or_saved_cards():
     item = dict(title='TLKM: spin off InfraNexia', summary='Fakta bersumber.', route='id_stocks_news')
-    cards = news.freeze_cards([item], lambda row: f'### <:source:1531272430985937086> {row["title"]}',
+    cards = news.freeze_cards([item], lambda row: f'### <:source:1571819316977082409> {row["title"]}',
                               'https://example.invalid/news', 'Source', fetch=lambda *_: None)
     assert item['title'] == 'TLKM: spin off InfraNexia'
     assert cards[0]['title'] == 'TLKM: Spin off InfraNexia'
