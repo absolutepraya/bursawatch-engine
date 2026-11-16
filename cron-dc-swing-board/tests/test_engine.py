@@ -697,8 +697,8 @@ def test_tag_migration_rewrites_legacy_source_tag_and_queues_patch(engine):
 
 def test_format_migration_rewrites_existing_starter_and_source_reply(engine):
     legacy = (
-        "### <:phintraco:1531272488645038091> HOLD: **KPIG**\n\n"
-        "**Status:** On track<:hold:1531284248235868333>\n"
+        "### <:phintraco:1571819323188842629> HOLD: **KPIG**\n\n"
+        "**Status:** On track<:hold:1571819347809148989>\n"
         "**Status date:** Fri, Sep 11 2026, 10:13 WIB\n"
         "**Source:** [Phintraco Sekuritas](<https://t.me/phintraprofits/33656>) | "
         "Alrich Paskalis T, Investment Advisor"
@@ -737,7 +737,7 @@ def test_format_migration_rewrites_existing_starter_and_source_reply(engine):
         and op.payload.get("nonce_value", "").startswith("format-migration:v5:")
     )
     assert "KPIG: On track" in reply_migration.payload["content"]
-    assert "On track <:hold:1531284248235868333>" in reply_migration.payload["content"]
+    assert "On track <:hold:1571819347809148989>" in reply_migration.payload["content"]
 
 
 def test_format_migration_moves_legacy_source_card_into_starter(engine):

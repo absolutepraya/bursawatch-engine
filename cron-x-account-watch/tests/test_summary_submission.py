@@ -28,7 +28,7 @@ def test_submit_title_only_preserves_raw_post_and_quote(tmp_path, monkeypatch, c
     result = scan.submit_analysis_payload({"event_key": "kutekians:102", "is_relevant": True, "title": "BI: Tiga Indikator untuk Pasar"})
 
     assert result == {"submitted": True, "delivered": 1}
-    assert sent == [("### <:twitter:1531672630602498129> BI: Tiga Indikator untuk Pasar\n-# <:kutekians:1531673483459821729> Almer Sad, CFA\n\nRaw original [View on X](<https://x.com/Kutekians/status/102>)\n> **Quoted author**\n> Quoted raw\n> [View quoted on X](<https://x.com/a/status/101>)", "1531655369884045382")]
+    assert sent == [("### <:twitter:1571819395527737445> BI: Tiga Indikator untuk Pasar\n-# <:kutekians:1571819401936637955> Almer Sad, CFA\n\nRaw original [View on X](<https://x.com/Kutekians/status/102>)\n> **Quoted author**\n> Quoted raw\n> [View quoted on X](<https://x.com/a/status/101>)", "1531655369884045382")]
 
 
 def test_submit_irrelevant_analysis_removes_its_private_vision_cache(tmp_path, monkeypatch, config_path, profile_payload):
@@ -73,7 +73,7 @@ def test_submit_summary_validates_then_drains_only_summary_event(tmp_path, monke
     result = scan.submit_analysis_payload({"event_key": "kutekians:102", "is_relevant": True, "title": "Pasar: Ringkasan Tervalidasi", "summary": "*(Ringkasan)* Ringkasan yang tervalidasi."})
 
     assert result == {"submitted": True, "delivered": 1}
-    assert sent == [("### <:twitter:1531672630602498129> Pasar: Ringkasan Tervalidasi\n-# <:kutekians:1531673483459821729> Almer Sad, CFA\n\n*(Ringkasan)* Ringkasan yang tervalidasi.\n\n[View on X](<https://x.com/Kutekians/status/102>)", "1531655369884045382")]
+    assert sent == [("### <:twitter:1571819395527737445> Pasar: Ringkasan Tervalidasi\n-# <:kutekians:1571819401936637955> Almer Sad, CFA\n\n*(Ringkasan)* Ringkasan yang tervalidasi.\n\n[View on X](<https://x.com/Kutekians/status/102>)", "1531655369884045382")]
     assert state.load_state(storage)["outbox"] == []
 
 

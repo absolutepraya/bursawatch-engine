@@ -66,8 +66,8 @@ def test_board_topic_link_replaces_only_the_legacy_channel_marker() -> None:
 
 def test_legacy_phintraco_buy_is_rewritten_with_analyst_and_canonical_dates() -> None:
     legacy = (
-        "### <:phintraco:1531272488645038091> BUY: **PYFA**\n\n"
-        "**Type:** Buy on Support<:up:1531285100346740766>\n"
+        "### <:phintraco:1571819323188842629> BUY: **PYFA**\n\n"
+        "**Type:** Buy on Support<:up:1571819360069357651>\n"
         "**Entry:** >=246\n**Stop-loss:** <236\n**Target 1:** 274\n"
         "**Target 2:** 296\n"
         "**Signal date:** Fri, Sep 11 2026, 06:50 WIB\n\n"
@@ -78,9 +78,9 @@ def test_legacy_phintraco_buy_is_rewritten_with_analyst_and_canonical_dates() ->
     rendered = canonicalize_phintraco_message(legacy, include_board=True, has_chart=True)
 
     assert rendered.startswith(
-        "### <:phintraco:1531272488645038091> PYFA: Buy\n"
+        "### <:phintraco:1571819323188842629> PYFA: Buy\n"
         "-# Alrich Paskalis T, Phintraco Sekuritas\n\n"
-        "**Type:** Buy on Support <:up:1531285100346740766>\n"
+        "**Type:** Buy on Support <:up:1571819360069357651>\n"
     )
     assert "**Signal date:** 11 Sep 2026 06:50 WIB" in rendered
     assert "**Board:** " + BOARD_MENTION in rendered
@@ -89,24 +89,24 @@ def test_legacy_phintraco_buy_is_rewritten_with_analyst_and_canonical_dates() ->
 
 def test_legacy_phintraco_hold_uses_institution_fallback_and_drops_chart_line() -> None:
     legacy = (
-        "### <:phintraco:1531272488645038091> HOLD: **UVCR**\n\n"
-        "**Status:** On track<:hold:1531284248235868333>\n"
+        "### <:phintraco:1571819323188842629> HOLD: **UVCR**\n\n"
+        "**Status:** On track<:hold:1571819347809148989>\n"
         "**Status date:** Thu, Sep 10 2026, 10:13 WIB\n"
         "**Source:** [Phintraco Sekuritas](<https://t.me/phintraprofits/35139>)\n"
         "**Chart:** Unavailable from source"
     )
     rendered = canonicalize_phintraco_message(legacy)
 
-    assert "### <:phintraco:1531272488645038091> UVCR: On track" in rendered
+    assert "### <:phintraco:1571819323188842629> UVCR: On track" in rendered
     assert "-# Phintraco Sekuritas" in rendered
-    assert "**Source status:** On track <:hold:1531284248235868333>" in rendered
+    assert "**Source status:** On track <:hold:1571819347809148989>" in rendered
     assert "**Last updated:** 10 Sep 2026 10:13 WIB" in rendered
     assert "**Chart:**" not in rendered
 
 
 def test_legacy_phintraco_reminder_promotes_outcome_to_source_status() -> None:
     legacy = (
-        "### <:phintraco:1531272488645038091> REMINDER: **UVCR**\n\n"
+        "### <:phintraco:1571819323188842629> REMINDER: **UVCR**\n\n"
         "**Outcome:** First target 167 achieved\n**Target 2:** 180\n"
         "**Reminder date:** Tue, Sep 15 2026, 11:05 WIB\n"
         "**Source:** [Phintraco Sekuritas](<https://t.me/phintraprofits/35230>) | "
@@ -114,10 +114,10 @@ def test_legacy_phintraco_reminder_promotes_outcome_to_source_status() -> None:
     )
     rendered = canonicalize_phintraco_message(legacy)
 
-    assert "### <:phintraco:1531272488645038091> UVCR: First target 167 achieved" in rendered
+    assert "### <:phintraco:1571819323188842629> UVCR: First target 167 achieved" in rendered
     assert "-# Alrich Paskalis T, Phintraco Sekuritas" in rendered
     assert "**Target 2:** 180" in rendered
-    assert "**Source status:** First target 167 achieved <:green:1531274822221434911>" in rendered
+    assert "**Source status:** First target 167 achieved <:green:1571819335603855533>" in rendered
     assert "**Last updated:** 15 Sep 2026 11:05 WIB" in rendered
 
 

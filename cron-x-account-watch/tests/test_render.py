@@ -14,13 +14,13 @@ def test_strip_emojis_preserves_writer_text():
 def test_render_quote_post_hides_quoted_block_by_default(config_path):
     profile = __import__("config").load_watch_config(config_path).profiles[0]
     post = SourcePost(profile.id, "102", "https://x.com/Kutekians/status/102", datetime.now(UTC), "Market note", PostKind.QUOTE, "https://x.com/original/status/101", "Kepala Warga Tai.: Quote note", (), ())
-    assert render.render_post(profile, post) == ["### <:twitter:1531672630602498129><:kutekians:1531673483459821729> Almer Sad, CFA\n\nMarket note [View on X](<https://x.com/Kutekians/status/102>)"]
+    assert render.render_post(profile, post) == ["### <:twitter:1571819395527737445><:kutekians:1571819401936637955> Almer Sad, CFA\n\nMarket note [View on X](<https://x.com/Kutekians/status/102>)"]
 
 
 def test_render_quote_post_shows_quoted_block_when_enabled(config_path):
     profile = replace(__import__("config").load_watch_config(config_path).profiles[0], show_quoted_post=True)
     post = SourcePost(profile.id, "102", "https://x.com/Kutekians/status/102", datetime.now(UTC), "Market note", PostKind.QUOTE, "https://x.com/original/status/101", "Kepala Warga Tai.: Quote note", (), ())
-    assert render.render_post(profile, post) == ["### <:twitter:1531672630602498129><:kutekians:1531673483459821729> Almer Sad, CFA\n\nMarket note [View on X](<https://x.com/Kutekians/status/102>)\n> **Kepala Warga Tai.**\n> Quote note\n> [View quoted on X](<https://x.com/original/status/101>)"]
+    assert render.render_post(profile, post) == ["### <:twitter:1571819395527737445><:kutekians:1571819401936637955> Almer Sad, CFA\n\nMarket note [View on X](<https://x.com/Kutekians/status/102>)\n> **Kepala Warga Tai.**\n> Quote note\n> [View quoted on X](<https://x.com/original/status/101>)"]
 
 
 def test_render_splits_long_post(config_path):
@@ -73,7 +73,7 @@ def test_render_summary_retains_quoted_post_text(config_path, profile_payload):
     profile = __import__("config").load_watch_config(config_path).profiles[0]
     post = SourcePost(profile.id, "102", "https://x.com/Kutekians/status/102", datetime.now(UTC), "Raw original", PostKind.QUOTE, "https://x.com/original/status/101", "Quoted raw", (), ())
     summary = "*(Ringkasan)* Ini ringkasan inti."
-    assert render.render_post(profile, post, summary, "Pasar: Ringkasan Inti") == ["### <:twitter:1531672630602498129> Pasar: Ringkasan Inti\n-# <:kutekians:1531673483459821729> Almer Sad, CFA\n\n*(Ringkasan)* Ini ringkasan inti.\n\n[View on X](<https://x.com/Kutekians/status/102>)\n> **Quoted post**\n> Quoted raw\n> [View quoted on X](<https://x.com/original/status/101>)"]
+    assert render.render_post(profile, post, summary, "Pasar: Ringkasan Inti") == ["### <:twitter:1571819395527737445> Pasar: Ringkasan Inti\n-# <:kutekians:1571819401936637955> Almer Sad, CFA\n\n*(Ringkasan)* Ini ringkasan inti.\n\n[View on X](<https://x.com/Kutekians/status/102>)\n> **Quoted post**\n> Quoted raw\n> [View quoted on X](<https://x.com/original/status/101>)"]
 
 
 def test_render_swing_adds_board_link_only_when_requested(config_path):
@@ -135,7 +135,7 @@ def test_render_title_places_writer_in_muted_byline(config_path, profile_payload
     profile = __import__("config").load_watch_config(config_path).profiles[0]
     post = SourcePost(profile.id, "102", "https://x.com/Kutekians/status/102", datetime.now(UTC), "Raw original", PostKind.NORMAL, None, None, (), ())
     rendered = render.render_post(profile, post, title="BI: Tiga Indikator untuk Membaca Pasar")[0]
-    assert rendered.startswith("### <:twitter:1531672630602498129> BI: Tiga Indikator untuk Membaca Pasar\n-# <:kutekians:1531673483459821729> Almer Sad, CFA\n\nRaw original")
+    assert rendered.startswith("### <:twitter:1571819395527737445> BI: Tiga Indikator untuk Membaca Pasar\n-# <:kutekians:1571819401936637955> Almer Sad, CFA\n\nRaw original")
 
 
 def test_render_title_strips_writer_emojis_from_muted_byline(config_path, profile_payload):
@@ -146,7 +146,7 @@ def test_render_title_strips_writer_emojis_from_muted_byline(config_path, profil
 
     rendered = render.render_post(profile, post, title="IHSG: Ringkasan")[0]
 
-    assert "-# <:kutekians:1531673483459821729> IHSG Journal\n\n" in rendered
+    assert "-# <:kutekians:1571819401936637955> IHSG Journal\n\n" in rendered
     assert "🍀" not in rendered
     assert "🌞" not in rendered
 
@@ -157,4 +157,4 @@ def test_render_updated_tweet_uses_the_agreed_byline(config_path):
 
     rendered = render.render_post(profile, post, title="BI: Ringkasan", updated_tweet=True)[0]
 
-    assert "-# <:kutekians:1531673483459821729> Almer Sad, CFA (Updated Tweet)" in rendered
+    assert "-# <:kutekians:1571819401936637955> Almer Sad, CFA (Updated Tweet)" in rendered

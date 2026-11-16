@@ -25,8 +25,8 @@ def profile_fixture() -> Profile:
         profile_url="https://x.com/marketwriter",
         handle="marketwriter",
         display_name="Market Writer",
-        twitter_emoji="<:twitter:1531672630602498129>",
-        emoji="<:marketwriter:1531673483459821729>",
+        twitter_emoji="<:twitter:1571819395527737445>",
+        emoji="<:marketwriter:1571819401936637955>",
         discord_channels=(
             DiscordChannel("macro_news", "1531655369884045382", "Macro"),
             DiscordChannel("id_stocks_swing", "1525102458253217803", "IDX swing"),

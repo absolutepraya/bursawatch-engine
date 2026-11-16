@@ -409,7 +409,7 @@ def test_submit_analysis_persists_dash_render_without_post(monkeypatch, tmp_path
     assert result["accepted"] is True
     assert result["no_post"] is True
     assert "Harga terakhir (IDR): **-**" in record["rendered"]
-    assert record["rendered"].count("<:grey:1531279158913536182>") == 4
+    assert record["rendered"].count("<:grey:1571819341568147527>") == 4
     assert record["phase"] == "pending_delivery"
 
 

@@ -106,7 +106,7 @@ def test_rows_have_actual_icons_signed_units_and_real_linebreaks_without_invente
     for name,zone,symbol,currency in [('KOSPI','Asia/Seoul','^KS11','KRW'),('Nikkei','Asia/Tokyo','^N225','JPY')]:
         quotes.append(module.parse_yahoo_chart(name,chart(symbol,zone,[s for s,e in ASIA_ROWS[:2]],[100,100],price=101,quote_at='2026-10-05T09:20:00+09:00',currency=currency),freeze_at=FREEZE,retrieved_at=FREEZE,sessions=schedule(zone,ASIA_ROWS)))
     rendered = module.format_global_rows(quotes,logos={},markdown=True)
-    assert '  \n' in rendered and '<:green:1531274822221434911>' in rendered
+    assert '  \n' in rendered and '<:green:1571819335603855533>' in rendered
     assert ':kospi:' not in rendered and '+1.00 poin (+1.00%)' in rendered
 
 

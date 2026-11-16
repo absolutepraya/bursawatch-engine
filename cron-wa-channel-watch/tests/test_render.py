@@ -10,11 +10,11 @@ def profile():
     return ChannelProfile(
         id="channel", enabled=True, mode="forward", channel_jid="1@newsletter",
         channel_url="https://whatsapp.com/channel/example", display_name="BRI Danareksa Sekuritas",
-        emoji="<:bridanareksa:1551797903927025797>",
+        emoji="<:bridanareksa:1571819579473399858>",
         status_emojis=StatusEmojis(
-            up="<:up:1531285100346740766>",
-            down="<:down:1531285063986053200>",
-            hold="<:hold:1531284248235868333>",
+            up="<:up:1571819360069357651>",
+            down="<:down:1571819353643683925>",
+            hold="<:hold:1571819347809148989>",
         ),
         discord_channels=(DiscordChannel("macro_news", "1505162000420835388", "Macro"),),
         forward_media=True, enable_llm_title=True, enable_llm_summary=True,
@@ -31,7 +31,7 @@ def test_render_contains_title_summary_and_channel_source():
     messages = render_post(profile(), event, title="BBCA: Laba Naik", summary="*(Ringkasan)* Ringkasan sumber.")
     assert len(messages) == 1
     assert "BBCA: Laba Naik" in messages[0]
-    assert "<:bridanareksa:1551797903927025797>" in messages[0]
+    assert "<:bridanareksa:1571819579473399858>" in messages[0]
     assert "-# BRI Danareksa Sekuritas" not in messages[0]
     assert "*(Ringkasan)*" in messages[0]
     assert "https://whatsapp.com/channel/example" in messages[0]
@@ -56,7 +56,7 @@ def test_render_uses_phintraco_shaped_bri_swing_shell(tmp_path):
     })
     message = render_post(profile(), event, title="TINS: Tren Bullish", summary="Rebound bertahan di atas support.", route="id_stocks_swing", sentiment="Bullish")[0]
     assert "-# BRI Danareksa Sekuritas" in message
-    assert "**Sentiment:** Bullish <:up:1531285100346740766>" in message
+    assert "**Sentiment:** Bullish <:up:1571819360069357651>" in message
     assert "**Sentiment date:** 11 Sep 2026 10:03 WIB" in message
     assert "**Reasons:** Rebound bertahan di atas support." in message
     assert "**Last updated:** 11 Sep 2026 10:03 WIB" in message
@@ -78,8 +78,8 @@ def test_render_does_not_put_media_state_in_the_swing_text():
 
 def test_render_preserves_down_and_hold_status_emojis():
     cases = (
-        ("#TechnicalReview\nSektor ini bearish.", "Bearish<:down:1531285063986053200>"),
-        ("#TechnicalReview\nRekomendasi saham: Hold.", "Hold<:hold:1531284248235868333>"),
+        ("#TechnicalReview\nSektor ini bearish.", "Bearish<:down:1571819353643683925>"),
+        ("#TechnicalReview\nRekomendasi saham: Hold.", "Hold<:hold:1571819347809148989>"),
     )
     for index, (text, expected) in enumerate(cases):
         event = normalize_bridge_event({

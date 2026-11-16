@@ -128,7 +128,7 @@ def test_news_item_has_no_delivery_window_heading(dewa_tier_one):
     alert = delivery.format_news_item(dewa_tier_one)
 
     assert alert.startswith(
-        "### <:tuntun:1531272430985937086> DEWA: Test news"
+        "### <:tuntun:1571819316977082409> DEWA: Test news"
     )
     assert all(label not in alert for label in ("PRE-MARKET", "POST-MARKET", "INTRA-DAY"))
     assert "┈" * 13 not in alert
@@ -137,10 +137,10 @@ def test_news_item_has_no_delivery_window_heading(dewa_tier_one):
     assert "BUY" not in alert
     assert (
         "Harga terakhir (IDR): **-**\n"
-        "<:grey:1531279158913536182> 1D: **-**, "
-        "<:grey:1531279158913536182> 1W: **-**,\n"
-        "<:grey:1531279158913536182> 1M: **-**, "
-        "<:grey:1531279158913536182> 3M: **-**"
+        "<:grey:1571819341568147527> 1D: **-**, "
+        "<:grey:1571819341568147527> 1W: **-**,\n"
+        "<:grey:1571819341568147527> 1M: **-**, "
+        "<:grey:1571819341568147527> 3M: **-**"
     ) in alert
     assert "*(Ringkasan)*" in alert
     assert len(alert) <= 2000
@@ -175,10 +175,10 @@ def test_entry_uses_yahoo_snapshot_for_canonical_name_and_rupiah_changes(monkeyp
     assert "DEWA: Test news" in alert
     assert (
         "Harga terakhir (IDR): **472**\n"
-        "<:green:1531274822221434911> 1D: **+32 (+7.27%)**, "
-        "<:red:1531274756853202974> 1W: **-18 (-3.67%)**,\n"
-        "<:grey:1531279158913536182> 1M: **-**, "
-        "<:grey:1531279158913536182> 3M: **-**"
+        "<:green:1571819335603855533> 1D: **+32 (+7.27%)**, "
+        "<:red:1571819329304006716> 1W: **-18 (-3.67%)**,\n"
+        "<:grey:1571819341568147527> 1M: **-**, "
+        "<:grey:1571819341568147527> 3M: **-**"
     ) in alert
 
 
@@ -204,13 +204,13 @@ def test_tuntun_entry_uses_generated_title_and_four_horizons(monkeypatch):
     alert = delivery.format_news_item(item)
 
     assert alert == (
-        "### <:tuntun:1531272430985937086> RAJA: Akuisisi Layar Nusantara Gas\n-# Tuntun\n\n"
+        "### <:tuntun:1571819316977082409> RAJA: Akuisisi Layar Nusantara Gas\n-# Tuntun\n\n"
         "*(Ringkasan)* RAJA acquired a 5% stake.\n\n"
         "Harga terakhir (IDR): **820**\n"
-        "<:green:1531274822221434911> 1D: **+5 (+0.61%)**, "
-        "<:green:1531274822221434911> 1W: **+10 (+1.23%)**,\n"
-        "<:green:1531274822221434911> 1M: **+5 (+0.61%)**, "
-        "<:green:1531274822221434911> 3M: **+10 (+1.23%)**\n\n"
+        "<:green:1571819335603855533> 1D: **+5 (+0.61%)**, "
+        "<:green:1571819335603855533> 1W: **+10 (+1.23%)**,\n"
+        "<:green:1571819335603855533> 1M: **+5 (+0.61%)**, "
+        "<:green:1571819335603855533> 3M: **+10 (+1.23%)**\n\n"
         "[View on Telegram](<https://t.me/tuntunsekuritas/14040>)"
     )
     assert "(PT Rukun Raharja Tbk)" not in alert
@@ -241,14 +241,14 @@ def test_phintraco_entry_uses_shared_issuer_layout_and_four_horizons(monkeypatch
     alert = delivery.format_news_item(item)
 
     assert alert == (
-        "### <:phintraco:1531272488645038091> FORU: PT Fortune Indonesia Tbk\n-# Phintraco\n\n"
+        "### <:phintraco:1571819323188842629> FORU: PT Fortune Indonesia Tbk\n-# Phintraco\n\n"
         "*(Ringkasan)* FORU akan melakukan rights issue hingga Rp27,1 triliun. "
         "Pemegang saham yang tidak mengeksekusi HMETD berpotensi terdilusi.\n\n"
         "Harga terakhir (IDR): **4.310**\n"
-        "<:red:1531274756853202974> 1D: **-340 (-7.31%)**, "
-        "<:green:1531274822221434911> 1W: **+610 (+16.49%)**,\n"
-        "<:green:1531274822221434911> 1M: **+2.500 (+116.28%)**, "
-        "<:green:1531274822221434911> 3M: **+1.580 (+51.47%)**\n\n"
+        "<:red:1571819329304006716> 1D: **-340 (-7.31%)**, "
+        "<:green:1571819335603855533> 1W: **+610 (+16.49%)**,\n"
+        "<:green:1571819335603855533> 1M: **+2.500 (+116.28%)**, "
+        "<:green:1571819335603855533> 3M: **+1.580 (+51.47%)**\n\n"
         "[View on Telegram](<https://t.me/phintasprofits/35235>)"
     )
     assert "┈" * 13 not in alert
@@ -291,13 +291,13 @@ def test_phintraco_anak_usaha_quick_note_uses_the_issuer_market_card(monkeypatch
     alert = delivery.format_news_item(item)
 
     assert alert == (
-        "### <:phintraco:1531272488645038091> ARKO: Anak Usaha ARKO Peroleh Pembiayaan US$9.8 Juta untuk Proyek PLTS\n-# Phintraco\n\n"
+        "### <:phintraco:1571819323188842629> ARKO: Anak Usaha ARKO Peroleh Pembiayaan US$9.8 Juta untuk Proyek PLTS\n-# Phintraco\n\n"
         "*(Ringkasan)* Anak usaha ARKO memperoleh fasilitas pembiayaan US$9,8 juta untuk proyek PLTS.\n\n"
         "Harga terakhir (IDR): **1.234**\n"
-        "<:green:1531274822221434911> 1D: **+24 (+1.98%)**, "
-        "<:red:1531274756853202974> 1W: **-18 (-1.44%)**,\n"
-        "<:green:1531274822221434911> 1M: **+55 (+4.66%)**, "
-        "<:green:1531274822221434911> 3M: **+118 (+10.58%)**\n\n"
+        "<:green:1571819335603855533> 1D: **+24 (+1.98%)**, "
+        "<:red:1571819329304006716> 1W: **-18 (-1.44%)**,\n"
+        "<:green:1571819335603855533> 1M: **+55 (+4.66%)**, "
+        "<:green:1571819335603855533> 3M: **+118 (+10.58%)**\n\n"
         "[View on Telegram](<https://t.me/phintasprofits/35412>)"
     )
 
@@ -324,7 +324,7 @@ def test_phintraco_macro_entry_uses_brand_summary_and_link_without_issuer_data()
     alert = delivery.format_news_item(item)
 
     assert alert == (
-        "### <:phintraco:1531272488645038091> Phintraco Sekuritas\n-# Phintraco\n\n"
+        "### <:phintraco:1571819323188842629> Phintraco Sekuritas\n-# Phintraco\n\n"
         "*(Ringkasan)* Perubahan kebijakan agraria dapat memengaruhi sejumlah pengembang properti.\n\n"
         "[View on Telegram](<https://t.me/phintasprofits/35378>)"
     )
@@ -356,7 +356,7 @@ def test_tuntun_macro_card_uses_the_telegram_link_without_market_data():
     alert = delivery.format_news_item(item)
 
     assert alert == (
-        "### <:tuntun:1531272430985937086> ECB naikkan suku bunga deposit 25 bps\n-# Tuntun\n\n"
+        "### <:tuntun:1571819316977082409> ECB naikkan suku bunga deposit 25 bps\n-# Tuntun\n\n"
         "*(Ringkasan)* ECB menaikkan suku bunga deposit sebesar 25 basis poin.\n\n"
         "[View on Telegram](<https://t.me/tuntunsekuritas/14786>)"
     )
@@ -431,10 +431,10 @@ def test_tuntun_entry_uses_bold_grey_placeholders_when_market_data_is_unavailabl
 
     assert "Harga terakhir (IDR): **-**" in alert
     assert (
-        "<:grey:1531279158913536182> 1D: **-**, "
-        "<:grey:1531279158913536182> 1W: **-**,\n"
-        "<:grey:1531279158913536182> 1M: **-**, "
-        "<:grey:1531279158913536182> 3M: **-**"
+        "<:grey:1571819341568147527> 1D: **-**, "
+        "<:grey:1571819341568147527> 1W: **-**,\n"
+        "<:grey:1571819341568147527> 1M: **-**, "
+        "<:grey:1571819341568147527> 3M: **-**"
     ) in alert
 
 
@@ -492,7 +492,7 @@ def test_flat_market_change_uses_grey_emoji(monkeypatch, dewa_tier_one):
 
     alert = delivery.format_news_item(dewa_tier_one)
 
-    assert alert.count("<:grey:1531279158913536182>") == 4
+    assert alert.count("<:grey:1571819341568147527>") == 4
 
 
 def test_reported_share_sale_survives_rendering(monkeypatch, dewa_tier_one):
@@ -523,13 +523,13 @@ def test_each_news_item_is_a_standalone_message_without_a_shared_heading(monkeyp
     assert asyncio.run(delivery.deliver_event(state, second, "123", now, delivery_client=owner))
 
     contents = [operation.payload["content"] for operation in owner.submissions]
-    assert contents[0].startswith("### <:tuntun:1531272430985937086> DEWA")
-    assert contents[1].startswith("### <:tuntun:1531272430985937086> ADRO: Test news")
+    assert contents[0].startswith("### <:tuntun:1571819316977082409> DEWA")
+    assert contents[1].startswith("### <:tuntun:1571819316977082409> ADRO: Test news")
     assert all("INTRA-DAY" not in message for message in contents)
 
 
 def test_tier_two_uses_the_same_standalone_format_and_oversize_is_rejected(cbre_tier_two):
-    assert delivery.format_news_item(cbre_tier_two).startswith("### <:tuntun:1531272430985937086> CBRE: Test news")
+    assert delivery.format_news_item(cbre_tier_two).startswith("### <:tuntun:1571819316977082409> CBRE: Test news")
     oversized = _item(
         Provider.TUNTUN,
         13600,

@@ -65,7 +65,7 @@ flowchart LR
 | --- | --- |
 | Source JID | `120363419226413141@newsletter` |
 | Public Channel | `https://www.whatsapp.com/channel/0029VbAjdnb60eBhwVdJxj1c` |
-| Source emoji | `<:bridanareksa:1551797903927025797>` |
+| Source emoji | `<:bridanareksa:1571819579473399858>` |
 | `macro_news` | Discord `1531655369884045382` |
 | `id_stocks_news` | Discord `1525102508714889257` |
 | `id_industry_news` | Discord `1549418098807930880` |

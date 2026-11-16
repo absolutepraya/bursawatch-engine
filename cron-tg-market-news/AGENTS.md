@@ -127,7 +127,7 @@ An unavailable or invalid quote degrades only that item's rendering. Tuntun stil
 Every new issuer-routed Tuntun item has this text-only layout:
 
 ```text
-### <:tuntun:1531272430985937086> <TICKER>: <generated sentence-case title>
+### <:tuntun:1571819316977082409> <TICKER>: <generated sentence-case title>
 *(Ringkasan)* <one to five factual Indonesian sentences from the validated summary>
 <blank line>
 Harga terakhir (IDR): **<price>**

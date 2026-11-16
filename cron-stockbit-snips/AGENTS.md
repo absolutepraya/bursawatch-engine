@@ -47,7 +47,7 @@ poller beside the active adapter.
 ## Rendering contract
 
 - The visible provider byline is `Stockbit`.
-- The provider marker is `<:stockbit:1552220036557578311>`.
+- The provider marker is `<:stockbit:1571819585571655720>`.
 - Titles are regenerated in natural Bahasa Indonesia and sentence case. They
   preserve tickers, acronyms, proper nouns, and official names where needed.
 - The first summary paragraph starts with `*(Ringkasan)* `, added by the

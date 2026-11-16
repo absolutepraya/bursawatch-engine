@@ -52,7 +52,7 @@ def _bound_state(route: str = "id_stocks_news"):
             "route": route,
             "source_evidence": "The article reports the contract.",
         },
-        "rendered": "<:stockbit:1552220036557578311> DEWA contract output",
+        "rendered": "<:stockbit:1571819585571655720> DEWA contract output",
     })
     channel = "123456789012345678" if route == "id_stocks_news" else "234567890123456789"
     operation, _nonce = scan.discord._operation(record["rendered"], channel, article.key, "news")

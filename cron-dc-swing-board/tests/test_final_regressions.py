@@ -145,15 +145,15 @@ def test_all_adapter_replies_chunk_losslessly_at_utf16_boundary(source):
 
 def test_near_limit_primary_keeps_source_type_escaping_and_reserves_close_fields(owner):
     event = replace(example_buy_event(), all_content=(
-        "### <:phintraco:1531272488645038091> SCMA: Buy\n-# Analyst, Investment Advisor\n\n"
-        "**Type:** Trading Buy<:up:1531285100346740766>\n**Reasons:** " + r"support \*held\* " * 105))
+        "### <:phintraco:1571819323188842629> SCMA: Buy\n-# Analyst, Investment Advisor\n\n"
+        "**Type:** Trading Buy<:up:1571819360069357651>\n**Reasons:** " + r"support \*held\* " * 105))
     assert len(event.all_content) < 2000
     owner.submit(event, at(hour=9, minute=0))
     for checkpoint in (None, Checkpoint.market(session_date="2026-09-21", checked_at=at().isoformat(), close_price="225", state=MarketState.ABOVE_ENTRY),
                        Checkpoint.unavailable_at(session_date="2026-09-21", checked_at=at().isoformat())):
         card = render_primary_card(replace(event, source_status="Long source confirmation " * 30), checkpoint)
         assert discord_length(card) <= 2000
-        assert "**Type:** Trading Buy <:up:1531285100346740766>" in card
+        assert "**Type:** Trading Buy <:up:1571819360069357651>" in card
         assert r"support \*held\*" in card and r"support \\\*held" not in card
     assert "**Entry:** 208 to 212" in card and "**Target 1:** 230" in card
     replies = [op.payload["content"] for op in owner.store.operations_for_ticker("SCMA") if op.operation == "post_source_reply"]
@@ -165,8 +165,8 @@ def test_phintraco_source_reply_migration_uses_shared_shell_and_source_footer_an
         example_buy_event(),
         media_path="/tmp/source-chart.jpg",
         all_content=(
-            "### <:phintraco:1531272488645038091> BUY: **SCMA**\n\n"
-            "**Type:** Trading Buy<:up:1531285100346740766>\n"
+            "### <:phintraco:1571819323188842629> BUY: **SCMA**\n\n"
+            "**Type:** Trading Buy<:up:1571819360069357651>\n"
             "**Entry:** 208 to 212\n**Stop-loss:** <200\n**Target:** 230\n"
             "**Signal date:** Fri, Sep 11 2026, 06:50 WIB\n\n"
             "**Reasons:** Support held.\n\n"
@@ -176,9 +176,9 @@ def test_phintraco_source_reply_migration_uses_shared_shell_and_source_footer_an
     )
     rendered = render_source_reply(event)
 
-    assert "### <:phintraco:1531272488645038091> SCMA: Buy" in rendered
+    assert "### <:phintraco:1571819323188842629> SCMA: Buy" in rendered
     assert "-# Alrich Paskalis T, Phintraco Sekuritas" in rendered
-    assert "**Type:** Trading Buy <:up:1531285100346740766>" in rendered
+    assert "**Type:** Trading Buy <:up:1571819360069357651>" in rendered
     assert "**Board:**" not in rendered
     assert rendered.endswith("[View in Telegram](<https://t.me/phintraprofits/33655>)")
 
@@ -190,10 +190,10 @@ def test_source_reply_removes_the_all_swing_board_marker_when_status_cannot_be_c
         plan=None,
         source_url="https://t.me/phintraprofits/35101",
         all_content=(
-            "### <:phintraco:1531272488645038091> COIN: On support\n"
+            "### <:phintraco:1571819323188842629> COIN: On support\n"
             "-# Alrich Paskalis T, Phintraco Sekuritas\n\n"
             "**Entry:** 800 to 815\n"
-            "**Source status:** On support <:hold:1531284248235868333>\n"
+            "**Source status:** On support <:hold:1571819347809148989>\n"
             "**Last updated:** 9 Sep 2026 11:44 WIB\n"
             "**Board:** <#1548273399069933720>\n\n"
             "[View in Telegram](<https://t.me/phintraprofits/35101>)"
@@ -214,9 +214,9 @@ def test_phintraco_outcome_fallback_keeps_blank_line_before_telegram_footer():
         source_url="https://t.me/phintraprofits/35197",
         source_status="Second target 5000 achieved; All targets achieved",
         all_content=(
-            "### <:phintraco:1531272488645038091> AMMN: Second target 5000 achieved\n"
+            "### <:phintraco:1571819323188842629> AMMN: Second target 5000 achieved\n"
             "-# Alrich Paskalis T, Phintraco Sekuritas\n\n"
-            "**Source status:** Second target 5000 achieved <:green:1531274822221434911>\n"
+            "**Source status:** Second target 5000 achieved <:green:1571819335603855533>\n"
             "**Last updated:** 14 Sep 2026 09:23 WIB\n"
             "[View in Telegram](<https://t.me/phintraprofits/35197>)"
         ),

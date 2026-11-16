@@ -117,11 +117,11 @@ def test_header_photo_bundle_agent_and_golden_all_board(owner, monkeypatch: pyte
                                             now=STAMP + timedelta(minutes=5))
     assert result["accepted"] is True
     assert sent_text == [
-        "### <:kelasinvestasi:1536570114772574218> CTRA: Akumulasi kuat\n"
+        "### <:kelasinvestasi:1571819433503105035> CTRA: Akumulasi kuat\n"
         "-# Kelas Investasi GTW\n\n"
         "*(Ringkasan)* Akumulasi kuat pada area 605 sampai 630\n\n"
         "**Buy area:** 605 sampai 630\n**Target:** 655\n**Stoploss:** <573\n\n"
-        "**Source status:** Good to watch <:grey:1531279158913536182>\n"
+        "**Source status:** Good to watch <:grey:1571819341568147527>\n"
         "**Last updated:** 24 Sep 2026 09:00 WIB\n"
         "**Board:** <#1548273399069933720>\n\n"
         "[View on Telegram](<https://t.me/kelasinvestasiid/101>)"

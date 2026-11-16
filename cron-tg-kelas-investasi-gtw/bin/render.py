@@ -19,8 +19,8 @@ from frozen_presentation import saved_presentation, without_board
 import config
 
 
-TELEGRAM_EMOJI = "<:telegram:1531657996432576618>"
-KELAS_INVESTASI_EMOJI = "<:kelasinvestasi:1536570114772574218>"
+TELEGRAM_EMOJI = "<:telegram:1571819383033172089>"
+KELAS_INVESTASI_EMOJI = "<:kelasinvestasi:1571819433503105035>"
 GTW_SOURCE_STATUS = "Good to watch"
 
 

@@ -17,8 +17,8 @@ def profile_payload() -> dict:
         "profile_url": "https://x.com/Kutekians",
         "handle": "Kutekians",
         "display_name": "Almer Sad, CFA",
-        "twitter_emoji": "<:twitter:1531672630602498129>",
-        "emoji": "<:kutekians:1531673483459821729>",
+        "twitter_emoji": "<:twitter:1571819395527737445>",
+        "emoji": "<:kutekians:1571819401936637955>",
         "discord_channels": [{
             "key": "macro_news",
             "channel_id": "1531655369884045382",

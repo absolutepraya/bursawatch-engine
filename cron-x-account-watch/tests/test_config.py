@@ -106,7 +106,7 @@ def test_canonical_serenity_profile_is_us_global_routed_and_unthreaded():
 
     assert profile.handle == "aleabitoreddit"
     assert profile.display_name == "Serenity"
-    assert profile.emoji == "<:aleabitoreddit:1570634436037582911>"
+    assert profile.emoji == "<:aleabitoreddit:1571819630383726672>"
     assert [channel.key for channel in profile.discord_channels] == [
         "macro_news", "us_stocks_news", "global_company_news", "us_industry_news", "global_industry_news",
     ]
@@ -134,8 +134,8 @@ def test_canonical_insider_tracker_profile_is_threaded_and_routed():
     assert profile.profile_url == "https://x.com/InsiderTrackX"
     assert profile.handle == "InsiderTrackX"
     assert profile.display_name == "Insider Tracker"
-    assert profile.twitter_emoji == "<:twitter:1531672630602498129>"
-    assert profile.emoji == "<:insidertracker:1537444489134604448>"
+    assert profile.twitter_emoji == "<:twitter:1571819395527737445>"
+    assert profile.emoji == "<:insidertracker:1571819439890894891>"
     assert profile.media_policy == "omit_last"
     assert [(channel.key, channel.channel_id, channel.description) for channel in profile.discord_channels] == [
         ("macro_news", "1531655369884045382", "Broad economic, business, market, sector, and cross-asset analysis."),
@@ -163,8 +163,8 @@ def test_canonical_doktermarket_profile_is_routed_and_media_enabled():
     assert profile.profile_url == "https://x.com/doktermarket"
     assert profile.handle == "doktermarket"
     assert profile.display_name == "Dokter Market"
-    assert profile.twitter_emoji == "<:twitter:1531672630602498129>"
-    assert profile.emoji == "<:doktermarket:1540234049807720508>"
+    assert profile.twitter_emoji == "<:twitter:1571819395527737445>"
+    assert profile.emoji == "<:doktermarket:1571819446513832036>"
     assert [(channel.key, channel.channel_id, channel.description) for channel in profile.discord_channels] == [
         ("macro_news", "1531655369884045382", "Broad economic, business, market, sector, and cross-asset analysis."),
         ("id_stocks_news", "1525102508714889257", "Direct IDX-listed company or ticker thesis."),
@@ -190,7 +190,7 @@ def test_canonical_txthariansaham_profile_is_routed_and_uses_rsshub():
     assert profile.profile_url == "https://x.com/txthariansaham"
     assert profile.handle == "txthariansaham"
     assert profile.display_name == "Ga Cuan Ga tidur"
-    assert profile.emoji == "<:txthariansaham:1540780954929340476>"
+    assert profile.emoji == "<:txthariansaham:1571819453061267467>"
     assert [(channel.key, channel.channel_id) for channel in profile.discord_channels] == [
         ("macro_news", "1531655369884045382"),
         ("id_stocks_news", "1525102508714889257"),
@@ -213,8 +213,8 @@ def test_canonical_aldotjahjadi8_profile_is_routed_and_threaded():
     assert profile.profile_url == "https://x.com/aldotjahjadi8"
     assert profile.handle == "aldotjahjadi8"
     assert profile.display_name == "Aldo Tjahjadi"
-    assert profile.twitter_emoji == "<:twitter:1531672630602498129>"
-    assert profile.emoji == "<:aldotjahjadi:1541368062643798127>"
+    assert profile.twitter_emoji == "<:twitter:1571819395527737445>"
+    assert profile.emoji == "<:aldotjahjadi:1571819465761357855>"
     assert [(channel.key, channel.channel_id) for channel in profile.discord_channels] == [
         ("macro_news", "1531655369884045382"),
         ("id_stocks_news", "1525102508714889257"),
@@ -236,8 +236,8 @@ def test_canonical_kobeissi_profile_is_financial_market_scoped():
     assert profile.profile_url == "https://x.com/KobeissiLetter"
     assert profile.handle == "KobeissiLetter"
     assert profile.display_name == "The Kobeissi Letter"
-    assert profile.twitter_emoji == "<:twitter:1531672630602498129>"
-    assert profile.emoji == "<:kobeissiletter:1542781230225952830>"
+    assert profile.twitter_emoji == "<:twitter:1571819395527737445>"
+    assert profile.emoji == "<:kobeissiletter:1571819472552206346>"
     assert profile.relevance_scope == "financial_market"
     assert [(channel.key, channel.channel_id) for channel in profile.discord_channels] == [
         ("macro_news", "1531655369884045382"),
@@ -270,7 +270,7 @@ def test_canonical_wavetiga_profile_is_direct_x_and_fully_routed():
     assert profile.profile_url == "https://x.com/wavetiga"
     assert profile.handle == "wavetiga"
     assert profile.display_name == "Andriy"
-    assert profile.emoji == "<:wavetiga:1540781022143316129>"
+    assert profile.emoji == "<:wavetiga:1571819459449196544>"
     assert [(channel.key, channel.channel_id) for channel in profile.discord_channels] == [
         ("macro_news", "1531655369884045382"),
         ("id_stocks_news", "1525102508714889257"),

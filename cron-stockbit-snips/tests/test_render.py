@@ -36,10 +36,10 @@ def test_ipo_without_price_uses_dash_and_grey_status() -> None:
     content = render(article(), analysis(), None)
 
     assert "Harga terakhir (IDR): **-**" in content
-    assert content.count("<:grey:1531279158913536182>") == 4
+    assert content.count("<:grey:1571819341568147527>") == 4
     assert "**0**" not in content
     assert "-# Stockbit" in content
-    assert "<:stockbit:1552220036557578311>" in content
+    assert "<:stockbit:1571819585571655720>" in content
     assert "[View on Stockbit]" in content
 
 
@@ -47,7 +47,7 @@ def test_macro_article_omits_market_card() -> None:
     content = render(article(), analysis(Route.MACRO_NEWS), None)
 
     assert "Harga terakhir" not in content
-    assert "<:grey:1531279158913536182>" not in content
+    assert "<:grey:1571819341568147527>" not in content
 
 
 

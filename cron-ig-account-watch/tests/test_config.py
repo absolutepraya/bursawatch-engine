@@ -101,16 +101,16 @@ def test_load_config_contains_the_approved_public_profile_rollout():
     assert all(profile.uses_llm for profile in watches.profiles)
     assert all(profile.max_items_per_poll == 20 for profile in watches.profiles)
     assert [profile.platform_emoji for profile in watches.profiles] == [
-        "<:instagram:1543621405436805231>",
+        "<:instagram:1571819485239713792>",
     ] * 7
     assert [profile.emoji for profile in watches.profiles] == [
-        "<:beyondthefundamental:1543622560069976085>",
-        "<:investart:1543622543745749062>",
-        "<:avenir:1543622527815786629>",
-        "<:acres:1543622510304821328>",
-        "<:sectors:1543622490914422794>",
-        "<:cukhurukuque:1544607707263275058>",
-        "<:notintofinance:1544607705094815876>",
+        "<:beyondthefundamental:1571819517221277818>",
+        "<:investart:1571819511433138277>",
+        "<:avenir:1571819504453951580>",
+        "<:acres:1571819498275737650>",
+        "<:sectors:1571819491908657162>",
+        "<:cukhurukuque:1571819530131341312>",
+        "<:notintofinance:1571819523806601236>",
     ]
     assert all(
         tuple(channel.key for channel in profile.discord_channels) == ("macro_news", "id_stocks_news")

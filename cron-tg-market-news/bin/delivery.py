@@ -64,13 +64,13 @@ _DELIVERY_OWNER_PREFIX = "bursawatch-market-news"
 _DELIVERY_OWNER_URL = "http://127.0.0.1:9140"
 _DELIVERY_OWNER_TOKEN_FILE = ".hermes/secrets/bursawatch-discord-delivery-client-token"
 _PROVIDER_EMOJIS = {
-    "Tuntun": "<:tuntun:1531272430985937086>",
-    "Phintraco": "<:phintraco:1531272488645038091>",
+    "Tuntun": "<:tuntun:1571819316977082409>",
+    "Phintraco": "<:phintraco:1571819323188842629>",
 }
 _DIRECTION_EMOJIS = {
-    "positive": "<:green:1531274822221434911>",
-    "negative": "<:red:1531274756853202974>",
-    "flat": "<:grey:1531279158913536182>",
+    "positive": "<:green:1571819335603855533>",
+    "negative": "<:red:1571819329304006716>",
+    "flat": "<:grey:1571819341568147527>",
 }
 _ENTRY_SEPARATOR = "┈" * 13
 _RINGKASAN_PREFIX = "*(Ringkasan)* "
