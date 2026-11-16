@@ -202,6 +202,11 @@ live delivery. Keep VPS backend services and Supabase in their existing homes.
 
 Custom emoji are application emojis owned by the Bursawatch bot (application `1502932232736735242`, limit 2000), not guild emojis, so
 no server emoji slot is used. Their `<:name:id>` markup is stored in configs, baselines and renderers.
+Exception: Discord forum tags accept only a guild's own custom emoji, so the six Swing Board tag icons (`up_big`, `down_big`,
+`hold_big`, `green_big`, `red_big`, `check_resolved_big`) remain guild emojis in guild `940285152335110204`. Never delete them or
+create other guild emojis. Message text, configs and renderers use application emojis only; `profile-emoji` creates application
+emojis through the Delivery Owner `application_emoji_create` operation. The migration map and a snapshot of the former guild
+emojis are on the VPS under `~/backup/hermes/emoji-migration/`.
 `.agents/skills/profile-emoji/deploy.sh` owns its skill deployment. The generic
 deploy helper supports cron and library packages only.
 
