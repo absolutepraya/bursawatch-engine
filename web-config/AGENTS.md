@@ -189,3 +189,6 @@ Missing configured destinations are terminal audited skips with a visible
 warning, never an Indonesia or Macro fallback. Industry metadata is an additive
 subject-v2 extension; retained legacy subjects, prepared cards, destinations
 and operation identities keep their saved contract.
+
+`src/app/robots.txt/route.ts` serves `Disallow: /` to every crawler because the
+workspace is private. Responses also carry `X-Robots-Tag: noindex`.

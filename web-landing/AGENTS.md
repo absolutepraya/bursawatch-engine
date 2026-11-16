@@ -31,3 +31,11 @@ Same-repository PR previews point only to their matching dashboard preview.
 They use `BURSAWATCH_PREVIEW_MODE=1`, add `noindex` response headers, and require
 Cloudflare Access before serving HTML or assets. Production destinations and
 domains must never be inherited by generated PR preview configurations.
+
+`src/app/robots.txt/route.ts` and `src/app/sitemap.ts` publish the crawler
+policy from `src/lib/robots.ts`. Production allows all crawlers, declares
+`Content-Signal: search=yes, ai-input=yes` (`ai-train` stays unset, so it is
+neither granted nor restricted) and lists the sitemap. Preview builds
+(`BURSAWATCH_PREVIEW_MODE=1`) disallow everything. Cloudflare Bot Fight Mode,
+AI-bot blocking and managed robots.txt are off for the zone, and Browser
+Integrity Check is off, so this file is the only crawler policy.
