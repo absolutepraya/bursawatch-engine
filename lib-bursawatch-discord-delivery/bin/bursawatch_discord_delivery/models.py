@@ -338,11 +338,11 @@ class DiscordQuery:
     channel_id: str | None = None
     thread_id: str | None = None
     guild_id: str | None = None
-    application_id: str | None = None
     message_id: str | None = None
     before: str | None = None
     after: str | None = None
     limit: int | None = None
+    application_id: str | None = None
 
     def __post_init__(self) -> None:
         validate_query(self.as_dict())

@@ -64,7 +64,7 @@ through SSH:
 ssh vps '~/.agents/skills/profile-emoji/bin/profile-emoji prepare --platform instagram --account https://www.instagram.com/<handle>/ --profile-id <stable_id> --json'
 ```
 
-During research, run `ensure` without `--apply` when the guild result is
+During research, run `ensure` without `--apply` when the application emoji result is
 needed. It returns an existing emoji without changing it, or reports
 `would_create` when the name is absent. The helper uses the VPS-local
 Instagram source path and never receives or prints `IG_COOKIE`.

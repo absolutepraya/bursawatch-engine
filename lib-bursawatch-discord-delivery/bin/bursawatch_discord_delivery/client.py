@@ -264,14 +264,14 @@ class DeliveryClient:
             raise DeliveryClientError("invalid_response") from None
 
     def list_guild_emojis(self, guild_id: str) -> list[dict[str, Any]]:
-        return self._list_emojis(DiscordQuery("guild_emojis", guild_id=guild_id), 500)
+        return self._list_emojis("guild_emojis", {"guild_id": guild_id}, 500)
 
     def list_application_emojis(self, application_id: str) -> list[dict[str, Any]]:
-        return self._list_emojis(DiscordQuery("application_emojis", application_id=application_id), 2000)
+        return self._list_emojis("application_emojis", {"application_id": application_id}, 2000)
 
-    def _list_emojis(self, query: DiscordQuery, limit: int) -> list[dict[str, Any]]:
+    def _list_emojis(self, kind: str, ids: dict[str, str], limit: int) -> list[dict[str, Any]]:
         try:
-            response = self.query(query)
+            response = self.query(DiscordQuery(kind, **ids))
         except ValidationError:
             raise DeliveryClientError("invalid_query") from None
         if not isinstance(response, list) or len(response) > limit:
