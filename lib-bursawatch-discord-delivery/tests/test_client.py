@@ -937,3 +937,16 @@ def test_deadline_submit_retry_and_wait_use_same_immutable_operation(fake_owner,
     fake_owner.state['accepted'][intent.key].update(status='delivered', receipt={'message_id': '456'})
     assert client.wait(intent.key, timeout_seconds=0).receipt == {'message_id': '456'}
     assert [item['method'] for item in fake_owner.state['requests']] == ['POST', 'POST', 'GET']
+
+
+def test_emoji_listing_maps_invalid_ids_to_a_categorized_error(fake_owner, token_file):
+    client = client_for(fake_owner, token_file)
+    for call in (client.list_guild_emojis, client.list_application_emojis):
+        with pytest.raises(DeliveryClientError) as caught:
+            call("bad")
+        assert caught.value.category == "invalid_query"
+
+
+def test_discord_query_positional_arguments_are_unchanged():
+    query = DiscordQuery("thread_message_read", None, "123", None, "456")
+    assert query.as_dict() == {"kind": "thread_message_read", "thread_id": "123", "message_id": "456"}
