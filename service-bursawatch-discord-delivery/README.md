@@ -11,9 +11,9 @@ All authenticated requests use a bearer token. `DISCORD_DELIVERY_API_TOKEN` auth
 | Route | Access | Purpose |
 |---|---|---|
 | `GET /healthz` | Loopback only | Service status and counts for pending, blocked, and ambiguous work |
-| `POST /v1/operations` | Client token for ordinary kinds; emoji token for `guild_emoji_create` | Validate and durably accept a typed operation and attachment bytes |
+| `POST /v1/operations` | Client token for ordinary kinds; emoji token for `guild_emoji_create` and `application_emoji_create` | Validate and durably accept a typed operation and attachment bytes |
 | `GET /v1/operations/by-key/{key}` | Client token | Read the durable receipt or current operation state |
-| `POST /v1/queries` | Client token | Perform an allowlisted, read-only Discord query, including bounded guild emoji listing |
+| `POST /v1/queries` | Client token | Perform an allowlisted, read-only Discord query, including bounded guild and application emoji listing |
 | `POST /v1/admin/operations/{key}/resolve` | Admin token | Record a receipt for an ambiguous message create after the service verifies the named Discord message |
 | `POST /v1/operations/adopt` | Admin token | Adopt an existing completed receipt or a pending operation during a reviewed cutover |
 | `GET /v1/admin/operations` | Admin token | List sanitized operation summaries without message bodies or media bytes |
@@ -25,7 +25,8 @@ Mutation kinds are `channel_message_create`, `channel_message_edit`, `channel_me
 
 Every operation has a caller-supplied stable key, an ordering key, and a canonical payload digest. Reusing a key with the same payload returns the existing row and receipt. Reusing it with different content returns `409` without replacing the operation or making a Discord request. Accepted attachment bytes are copied to the service media directory; the service does not read caller-supplied filesystem paths.
 
-`guild_emoji_create` accepts a name and one bounded static PNG attachment. The
+`application_emoji_create` (target `application_id`, `POST /applications/{id}/emojis`, up to 2000 per
+application) and `guild_emoji_create` accept a name and one bounded static PNG attachment. The
 service builds Discord's image data URI only inside the gateway. SQLite stores
 the name, PNG digest, and private media path, never the image bytes. Before the
 create, the worker checks that the name is absent. If a response is lost and

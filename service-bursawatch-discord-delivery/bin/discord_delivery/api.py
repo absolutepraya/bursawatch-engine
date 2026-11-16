@@ -177,7 +177,7 @@ def create_app(config: Config, store: DeliveryStore | None = None,
     async def submit(request: Request, authorization: str | None = Header(default=None)) -> dict[str, Any]:
         scope = _submit_scope(authorization, config)
         intent = await _multipart_operation(request)
-        if (intent.kind == "guild_emoji_create") != (scope == "emoji"):
+        if (intent.kind in {"guild_emoji_create", "application_emoji_create"}) != (scope == "emoji"):
             raise HTTPException(403, "operation not authorized for token")
         return _public(await run_in_threadpool(store.accept, intent))
 

@@ -108,7 +108,7 @@ Before adding or changing a profile, inspect the account and representative curr
 
 ## Profile emoji onboarding
 
-Use the reusable VPS-local `profile-emoji` skill for account avatars. For a
+Use the reusable VPS-local `profile-emoji` skill for account avatars. It creates application emojis owned by the bot, never guild emojis. For a
 known watcher account, pass its stable profile ID as the emoji name source. For
 a standalone account, use the helper's deterministic `x_<handle>` default or
 an explicit reviewed name. Invoke it through SSH:

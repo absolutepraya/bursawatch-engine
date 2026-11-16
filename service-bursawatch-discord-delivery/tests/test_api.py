@@ -29,6 +29,27 @@ def operation(key="news:1", **changes):
     return value
 
 
+def test_application_emoji_requires_the_emoji_token_and_typed_target(tmp_path):
+    client, store = setup_client(tmp_path, lambda query: [{"id": "456", "name": "writer"}])
+    value = operation("profile-emoji-app:123:writer", kind="application_emoji_create",
+                      ordering_key="application-emoji:123", target={"application_id": "123"},
+                      payload={"name": "writer"})
+    png = b"\x89PNG\r\n\x1a\npixels"
+    files = [("emoji.png", png, "image/png")]
+    assert submit(client, value, attachments=files).status_code == 403
+    assert store.counts()["pending"] == 0
+    assert submit(client, value, token="emoji-secret", attachments=files).status_code == 202
+    bad = operation("profile-emoji-app:bad:writer", kind="application_emoji_create",
+                    ordering_key="application-emoji:bad", target={"guild_id": "123"},
+                    payload={"name": "writer"})
+    assert submit(client, bad, token="emoji-secret", attachments=files).status_code == 422
+    headers = {"Authorization": "Bearer client-secret"}
+    assert client.post("/v1/queries", json={"kind": "application_emojis", "application_id": "123"},
+                       headers=headers).status_code == 200
+    assert client.post("/v1/queries", json={"kind": "application_emojis", "application_id": "bad"},
+                       headers=headers).status_code == 422
+
+
 def test_guild_emoji_contract_is_typed_and_idempotent(tmp_path):
     client, store = setup_client(tmp_path, lambda query: [{"id": "456", "name": "writer"}])
     value = operation("profile-emoji:123:writer", kind="guild_emoji_create",

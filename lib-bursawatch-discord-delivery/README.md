@@ -111,7 +111,9 @@ Planning and testing use local files and loopback fake HTTP. This library contai
 `list_guild_emojis(guild_id)` returns bounded emoji metadata through the
 Delivery Owner. `create_guild_emoji(guild_id, name, png_bytes)` submits a
 durable keyed create with a PNG attachment; callers can use `wait` for its
-receipt. Neither method receives a Discord bot token.
+receipt. `list_application_emojis(application_id)` and
+`create_application_emoji(application_id, name, png_bytes)` do the same for
+application-owned emojis, which new profile emojis use. Neither method receives a Discord bot token.
 
 ## Company News channel provisioning
 

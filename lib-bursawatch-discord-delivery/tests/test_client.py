@@ -115,6 +115,28 @@ def test_emoji_client_uses_typed_query_and_dedicated_create_token(fake_owner, to
     assert absent.value.category == "emoji_credentials_required"
 
 
+def test_application_emoji_client_uses_typed_query_and_emoji_token(fake_owner, token_file, tmp_path):
+    fake_owner.state["query_response"] = [
+        {"id": "456", "name": "writer", "managed": False, "animated": False}
+    ]
+    emoji_token_file = tmp_path / "emoji-token"
+    emoji_token_file.write_text("test-emoji-token", encoding="utf-8")
+    emoji_token_file.chmod(0o600)
+    client = client_for(fake_owner, token_file, emoji_token_file=emoji_token_file)
+    assert client.list_application_emojis("123")[0]["name"] == "writer"
+    assert fake_owner.state["last_query"] == {"kind": "application_emojis", "application_id": "123"}
+    png = b"\x89PNG\r\n\x1a\npixels"
+    receipt = client.create_application_emoji("123", "writer", png)
+    assert receipt.key == "profile-emoji-app:123:writer"
+    assert fake_owner.state["requests"][-1]["headers"]["Authorization"] == "Bearer test-emoji-token"
+    assert fake_owner.state["last_operation"]["kind"] == "application_emoji_create"
+    assert fake_owner.state["last_operation"]["target"] == {"application_id": "123"}
+    ordinary = client_for(fake_owner, token_file)
+    with pytest.raises(DeliveryClientError) as absent:
+        ordinary.create_application_emoji("123", "another", png)
+    assert absent.value.category == "emoji_credentials_required"
+
+
 def test_loads_private_client_token_and_parses_accepted_receipt(fake_owner, token_file):
     client = client_for(fake_owner, token_file)
     operation = make_operation()

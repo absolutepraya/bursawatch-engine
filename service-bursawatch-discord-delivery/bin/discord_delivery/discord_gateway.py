@@ -86,6 +86,8 @@ class DiscordGateway:
             return "DELETE", f"/channels/{target['channel_id']}", {}
         if kind == "guild_emoji_create":
             return "POST", f"/guilds/{target['guild_id']}/emojis", {"name": payload["name"], "roles": []}
+        if kind == "application_emoji_create":
+            return "POST", f"/applications/{target['application_id']}/emojis", {"name": payload["name"]}
         raise ValidationError("invalid operation kind")
 
     def _request(self, method: str, path: str, *, body: Mapping[str, Any] | None = None,
@@ -170,7 +172,7 @@ class DiscordGateway:
             current = self._request("GET", f"/channels/{intent.target['channel_id']}")
             if not isinstance(current, dict) or current.get("type") != 0:
                 raise GatewayError("rejected")
-        if intent.kind == "guild_emoji_create":
+        if intent.kind in {"guild_emoji_create", "application_emoji_create"}:
             if len(attachments) != 1:
                 raise GatewayError("invalid_attachment_state")
             data = attachments[0].path.read_bytes()
@@ -238,6 +240,20 @@ class DiscordGateway:
             result.append({"id": attachment_id, "filename": filename})
         return result
 
+    @staticmethod
+    def _emoji_rows(result: list[Any]) -> list[dict[str, Any]]:
+        emojis = []
+        for item in result:
+            if (not isinstance(item, dict) or not isinstance(item.get("id"), str)
+                    or not item["id"].isdigit() or len(item["id"]) > 20
+                    or not isinstance(item.get("name"), str) or len(item["name"]) > 32
+                    or type(item.get("animated", False)) is not bool
+                    or type(item.get("managed", False)) is not bool):
+                raise GatewayError("invalid_response")
+            emojis.append({"id": item["id"], "name": item["name"],
+                           "animated": item.get("animated", False), "managed": item.get("managed", False)})
+        return emojis
+
     def query(self, query: Mapping[str, Any]) -> object:
         value = validate_query(dict(query))
         kind = value["kind"]
@@ -246,21 +262,18 @@ class DiscordGateway:
             if not isinstance(result, list) or len(result) > 500 or any(not isinstance(row, dict) for row in result):
                 raise GatewayError("invalid_response")
             return result
+        if kind == "application_emojis":
+            result = self._request("GET", f"/applications/{value['application_id']}/emojis")
+            items = result.get("items") if isinstance(result, dict) else None
+            if not isinstance(items, list) or len(items) > 2000:
+                raise GatewayError("invalid_response")
+            result = items
+            return self._emoji_rows(result)
         if kind == "guild_emojis":
             result = self._request("GET", f"/guilds/{value['guild_id']}/emojis")
             if not isinstance(result, list) or len(result) > 500:
                 raise GatewayError("invalid_response")
-            emojis = []
-            for item in result:
-                if (not isinstance(item, dict) or not isinstance(item.get("id"), str)
-                        or not item["id"].isdigit() or len(item["id"]) > 20
-                        or not isinstance(item.get("name"), str) or len(item["name"]) > 32
-                        or type(item.get("animated", False)) is not bool
-                        or type(item.get("managed", False)) is not bool):
-                    raise GatewayError("invalid_response")
-                emojis.append({"id": item["id"], "name": item["name"],
-                               "animated": item.get("animated", False), "managed": item.get("managed", False)})
-            return emojis
+            return self._emoji_rows(result)
         if kind == "forum_threads":
             channel = self._request("GET", f"/channels/{value['channel_id']}")
             if not isinstance(channel, dict) or not isinstance(channel.get("guild_id"), str) or not channel["guild_id"].isdigit():

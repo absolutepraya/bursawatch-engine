@@ -200,6 +200,8 @@ production cutover. Do not move web environment values into the backend service,
 copy backend credentials into either app, or infer that a successful build proves
 live delivery. Keep VPS backend services and Supabase in their existing homes.
 
+Custom emoji are application emojis owned by the Bursawatch bot (application `1502932232736735242`, limit 2000), not guild emojis, so
+no server emoji slot is used. Their `<:name:id>` markup is stored in configs, baselines and renderers.
 `.agents/skills/profile-emoji/deploy.sh` owns its skill deployment. The generic
 deploy helper supports cron and library packages only.
 

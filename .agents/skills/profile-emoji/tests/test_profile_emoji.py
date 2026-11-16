@@ -108,12 +108,12 @@ def test_emoji_client_uses_delivery_owner_only(monkeypatch: pytest.MonkeyPatch) 
             assert token_file.name == "bursawatch-discord-delivery-client-token"
             assert emoji_token_file.name == "bursawatch-discord-delivery-emoji-token"
 
-        def list_guild_emojis(self, guild_id: str) -> list[dict[str, object]]:
-            assert guild_id == helper.DEFAULT_GUILD_ID
+        def list_application_emojis(self, application_id: str) -> list[dict[str, object]]:
+            assert application_id == helper.DEFAULT_APPLICATION_ID
             return []
 
-        def create_guild_emoji(self, guild_id: str, name: str, data: bytes) -> object:
-            assert (guild_id, name, data) == (helper.DEFAULT_GUILD_ID, "writer", b"png")
+        def create_application_emoji(self, application_id: str, name: str, data: bytes) -> object:
+            assert (application_id, name, data) == (helper.DEFAULT_APPLICATION_ID, "writer", b"png")
             return SimpleNamespace(status="pending", key="profile-emoji:key", receipt=None)
 
         def wait(self, key: str, timeout: int) -> object:
@@ -123,8 +123,8 @@ def test_emoji_client_uses_delivery_owner_only(monkeypatch: pytest.MonkeyPatch) 
 
     monkeypatch.setattr(helper, "DeliveryClient", FakeDelivery)
     client = helper.EmojiDeliveryClient()
-    assert client.list_guild_emojis(helper.DEFAULT_GUILD_ID) == []
-    assert client.create_guild_emoji(helper.DEFAULT_GUILD_ID, "writer", b"png") == {
+    assert client.list_application_emojis(helper.DEFAULT_APPLICATION_ID) == []
+    assert client.create_application_emoji(helper.DEFAULT_APPLICATION_ID, "writer", b"png") == {
         "name": "writer", "id": "1531672630602498129"
     }
 
@@ -134,7 +134,7 @@ def test_ensure_cli_preserves_json_output_without_bot_token(monkeypatch: pytest.
     monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
 
     class FakeClient:
-        def list_guild_emojis(self, _: str) -> list[dict[str, object]]:
+        def list_application_emojis(self, _: str) -> list[dict[str, object]]:
             return [{"id": "1531672630602498129", "name": "x_writer",
                      "animated": False, "managed": False}]
 
@@ -176,11 +176,11 @@ def test_ensure_returns_existing_without_resolving_or_mutating(monkeypatch: pyte
         def __init__(self) -> None:
             self.created = False
 
-        def list_guild_emojis(self, guild_id: str) -> list[dict[str, object]]:
-            assert guild_id == helper.DEFAULT_GUILD_ID
+        def list_application_emojis(self, application_id: str) -> list[dict[str, object]]:
+            assert application_id == helper.DEFAULT_APPLICATION_ID
             return [existing]
 
-        def create_guild_emoji(self, *_: object) -> dict[str, object]:
+        def create_application_emoji(self, *_: object) -> dict[str, object]:
             self.created = True
             raise AssertionError("existing emoji must not be created")
 
@@ -193,7 +193,7 @@ def test_ensure_returns_existing_without_resolving_or_mutating(monkeypatch: pyte
     result = helper.ensure(
         account,
         "writer",
-        helper.DEFAULT_GUILD_ID,
+        helper.DEFAULT_APPLICATION_ID,
         apply=True,
     )
     assert result["action"] == "existing"
@@ -210,10 +210,10 @@ def test_ensure_dry_run_reports_absent_without_posting(monkeypatch: pytest.Monke
         def __init__(self) -> None:
             self.created = False
 
-        def list_guild_emojis(self, _: str) -> list[dict[str, object]]:
+        def list_application_emojis(self, _: str) -> list[dict[str, object]]:
             return []
 
-        def create_guild_emoji(self, *_: object) -> dict[str, object]:
+        def create_application_emoji(self, *_: object) -> dict[str, object]:
             self.created = True
             raise AssertionError("dry run must not post")
 
@@ -223,7 +223,7 @@ def test_ensure_dry_run_reports_absent_without_posting(monkeypatch: pytest.Monke
     result = helper.ensure(
         account,
         "ig_example_id",
-        helper.DEFAULT_GUILD_ID,
+        helper.DEFAULT_APPLICATION_ID,
         apply=False,
     )
     assert result["action"] == "would_create"
@@ -252,11 +252,11 @@ def test_ensure_image_apply_creates_absent_emoji(monkeypatch: pytest.MonkeyPatch
         def __init__(self) -> None:
             self.created_payload: tuple[str, str, bytes] | None = None
 
-        def list_guild_emojis(self, _: str) -> list[dict[str, object]]:
+        def list_application_emojis(self, _: str) -> list[dict[str, object]]:
             return []
 
-        def create_guild_emoji(self, guild_id: str, name: str, png_bytes: bytes) -> dict[str, object]:
-            self.created_payload = (guild_id, name, png_bytes)
+        def create_application_emoji(self, application_id: str, name: str, png_bytes: bytes) -> dict[str, object]:
+            self.created_payload = (application_id, name, png_bytes)
             return {"id": "1531673483459821729", "name": name, "animated": False}
 
     fake_client: FakeClient | None = None
@@ -270,13 +270,13 @@ def test_ensure_image_apply_creates_absent_emoji(monkeypatch: pytest.MonkeyPatch
     result = helper.ensure_image(
         str(image_path),
         "bridanareksa",
-        helper.DEFAULT_GUILD_ID,
+        helper.DEFAULT_APPLICATION_ID,
         apply=True,
     )
 
     assert fake_client is not None
     assert fake_client.created_payload is not None
-    assert fake_client.created_payload[:2] == (helper.DEFAULT_GUILD_ID, "bridanareksa")
+    assert fake_client.created_payload[:2] == (helper.DEFAULT_APPLICATION_ID, "bridanareksa")
     assert result["platform"] == "local"
     assert result["action"] == "created"
     assert result["discord_markup"] == "<:bridanareksa:1531673483459821729>"
@@ -290,11 +290,11 @@ def test_ensure_apply_creates_absent_emoji_and_returns_both_forms(monkeypatch: p
         def __init__(self) -> None:
             self.created_payload: tuple[str, str, bytes] | None = None
 
-        def list_guild_emojis(self, _: str) -> list[dict[str, object]]:
+        def list_application_emojis(self, _: str) -> list[dict[str, object]]:
             return []
 
-        def create_guild_emoji(self, guild_id: str, name: str, png_bytes: bytes) -> dict[str, object]:
-            self.created_payload = (guild_id, name, png_bytes)
+        def create_application_emoji(self, application_id: str, name: str, png_bytes: bytes) -> dict[str, object]:
+            self.created_payload = (application_id, name, png_bytes)
             return {"id": "1531673483459821729", "name": name, "animated": False}
 
     fake_client: FakeClient | None = None
@@ -310,12 +310,12 @@ def test_ensure_apply_creates_absent_emoji_and_returns_both_forms(monkeypatch: p
     result = helper.ensure(
         account,
         "ig_example_id",
-        helper.DEFAULT_GUILD_ID,
+        helper.DEFAULT_APPLICATION_ID,
         apply=True,
     )
     assert fake_client is not None
     assert fake_client.created_payload == (
-        helper.DEFAULT_GUILD_ID,
+        helper.DEFAULT_APPLICATION_ID,
         "ig_example_id",
         resolved.png_bytes,
     )

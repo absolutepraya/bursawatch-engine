@@ -30,6 +30,7 @@ OperationKind = Literal[
     "forum_channel_edit",
     "forum_channel_delete",
     "guild_emoji_create",
+    "application_emoji_create",
 ]
 QueryKind = Literal[
     "forum_thread_read",
@@ -40,6 +41,7 @@ QueryKind = Literal[
     "forum_threads",
     "guild_emojis",
     "guild_channels",
+    "application_emojis",
 ]
 OperationStatus = Literal[
     "pending",
@@ -59,11 +61,12 @@ KINDS = frozenset({
     "forum_channel_create", "forum_channel_edit", "forum_channel_delete",
     "text_channel_create", "text_channel_edit",
     "guild_emoji_create",
+    "application_emoji_create",
 })
 QUERY_KINDS = frozenset({
     "forum_thread_read", "thread_message_read", "forum_channel_read",
     "channel_messages", "thread_messages", "forum_threads",
-    "guild_emojis", "guild_channels",
+    "guild_emojis", "guild_channels", "application_emojis",
 })
 STATUSES = frozenset({
     "pending", "pending_reconciliation", "retrying", "delivering",
@@ -85,6 +88,7 @@ TARGET_FIELDS = {
     "forum_channel_edit": frozenset({"channel_id"}),
     "forum_channel_delete": frozenset({"channel_id"}),
     "guild_emoji_create": frozenset({"guild_id"}),
+    "application_emoji_create": frozenset({"application_id"}),
 }
 PAYLOAD_FIELDS = {
     "channel_message_create": frozenset({"content", "allowed_mentions"}),
@@ -102,6 +106,7 @@ PAYLOAD_FIELDS = {
     "forum_channel_edit": frozenset({"name", "topic"}),
     "forum_channel_delete": frozenset(),
     "guild_emoji_create": frozenset({"name"}),
+    "application_emoji_create": frozenset({"name"}),
 }
 QUERY_FIELDS = {
     "forum_thread_read": ({"thread_id"}, {"thread_id"}),
@@ -111,6 +116,7 @@ QUERY_FIELDS = {
     "thread_messages": ({"thread_id"}, {"thread_id", "before", "after", "limit"}),
     "forum_threads": ({"channel_id"}, {"channel_id", "before", "limit"}),
     "guild_emojis": ({"guild_id"}, {"guild_id"}),
+    "application_emojis": ({"application_id"}, {"application_id"}),
     "guild_channels": ({"guild_id"}, {"guild_id"}),
 }
 MAX_CONTENT = 2000
@@ -216,7 +222,7 @@ class OperationIntent:
             name = payload.get("name")
             if not isinstance(name, str) or not 1 <= len(name) <= 100:
                 raise ValidationError("invalid thread name")
-        if self.kind == "guild_emoji_create":
+        if self.kind in {"guild_emoji_create", "application_emoji_create"}:
             name = payload.get("name")
             if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_]{1,32}", name):
                 raise ValidationError("invalid emoji name")
@@ -268,7 +274,7 @@ class OperationIntent:
             if mode != "replace" and self.attachments:
                 raise ValidationError("only replace mode accepts uploaded attachments")
         if self.attachments and self.kind not in {
-            "channel_message_create", "thread_message_create", "forum_thread_create", "thread_message_edit", "guild_emoji_create"
+            "channel_message_create", "thread_message_create", "forum_thread_create", "thread_message_edit", "guild_emoji_create", "application_emoji_create"
         }:
             raise ValidationError("attachments not supported for operation kind")
         if not isinstance(self.reconcile_before_first_create, bool):
@@ -332,6 +338,7 @@ class DiscordQuery:
     channel_id: str | None = None
     thread_id: str | None = None
     guild_id: str | None = None
+    application_id: str | None = None
     message_id: str | None = None
     before: str | None = None
     after: str | None = None
@@ -342,7 +349,7 @@ class DiscordQuery:
 
     def as_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {"kind": self.kind}
-        for name in ("channel_id", "thread_id", "guild_id", "message_id", "before", "after", "limit"):
+        for name in ("channel_id", "thread_id", "guild_id", "application_id", "message_id", "before", "after", "limit"):
             value = getattr(self, name)
             if value is not None:
                 result[name] = value
@@ -391,7 +398,7 @@ def validate_receipt(receipt: Mapping[str, str], kind: str, target: Mapping[str,
     elif kind.startswith(("forum_channel_", "text_channel_")):
         required = {"channel_id"}
         allowed = {"channel_id"}
-    elif kind == "guild_emoji_create":
+    elif kind in {"guild_emoji_create", "application_emoji_create"}:
         required = {"emoji_id"}
         allowed = {"emoji_id"}
     elif kind.startswith("thread_message_"):
@@ -444,7 +451,7 @@ def validate_query(value: Any) -> dict[str, Any]:
     required, allowed = QUERY_FIELDS[kind]
     if not required <= set(query) or set(query) - (allowed | {"kind"}):
         raise ValidationError("invalid query fields")
-    for name in ("channel_id", "thread_id", "message_id", "guild_id", "before", "after"):
+    for name in ("channel_id", "thread_id", "message_id", "guild_id", "application_id", "before", "after"):
         if name in query:
             _snowflake(query[name], name)
     if "limit" in query and (type(query["limit"]) is not int or not 1 <= query["limit"] <= 100):

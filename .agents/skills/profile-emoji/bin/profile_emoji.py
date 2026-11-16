@@ -32,7 +32,7 @@ if str(_DELIVERY_BIN) not in sys.path:
 from bursawatch_discord_delivery import DeliveryClient, DeliveryClientError  # noqa: E402
 
 
-DEFAULT_GUILD_ID = "940285152335110204"
+DEFAULT_APPLICATION_ID = "1502932232736735242"
 DISCORD_TIMEOUT_SECONDS = 30
 MAX_HTML_BYTES = 5 * 1024 * 1024
 MAX_IMAGE_INPUT_BYTES = 10 * 1024 * 1024
@@ -517,9 +517,9 @@ def resolve_local_image(path: str) -> ResolvedImage:
     )
 
 
-def _validate_guild_id(value: str) -> str:
+def _validate_application_id(value: str) -> str:
     if not DISCORD_ID_RE.fullmatch(value):
-        raise ProfileEmojiError("guild ID must be a 17 to 20 digit Discord ID")
+        raise ProfileEmojiError("application ID must be a 17 to 20 digit Discord ID")
     return value
 
 
@@ -549,15 +549,15 @@ class EmojiDeliveryClient:
         except DeliveryClientError as exc:
             raise ProfileEmojiError(str(exc)) from None
 
-    def list_guild_emojis(self, guild_id: str) -> list[dict[str, Any]]:
+    def list_application_emojis(self, application_id: str) -> list[dict[str, Any]]:
         try:
-            return self._client.list_guild_emojis(guild_id)
+            return self._client.list_application_emojis(application_id)
         except DeliveryClientError as exc:
             raise ProfileEmojiError(str(exc)) from None
 
-    def create_guild_emoji(self, guild_id: str, name: str, png_bytes: bytes) -> dict[str, Any]:
+    def create_application_emoji(self, application_id: str, name: str, png_bytes: bytes) -> dict[str, Any]:
         try:
-            receipt = self._client.create_guild_emoji(guild_id, name, png_bytes)
+            receipt = self._client.create_application_emoji(application_id, name, png_bytes)
             if receipt.status != "delivered":
                 receipt = self._client.wait(receipt.key, DISCORD_TIMEOUT_SECONDS)
         except DeliveryClientError as exc:
@@ -613,13 +613,13 @@ def prepare(account: Account, name: str) -> dict[str, Any]:
 def ensure(
     account: Account,
     name: str,
-    guild_id: str,
+    application_id: str,
     *,
     apply: bool,
 ) -> dict[str, Any]:
     client = EmojiDeliveryClient()
     result = _result_base(account, name)
-    matching = [emoji for emoji in client.list_guild_emojis(guild_id) if emoji.get("name") == name]
+    matching = [emoji for emoji in client.list_application_emojis(application_id) if emoji.get("name") == name]
     if len(matching) > 1:
         raise ProfileEmojiError("multiple Discord emojis use the requested name")
     if matching:
@@ -631,7 +631,7 @@ def ensure(
         result["action"] = "would_create"
         return result
 
-    created = client.create_guild_emoji(guild_id, name, image.png_bytes)
+    created = client.create_application_emoji(application_id, name, image.png_bytes)
     if created.get("name") not in {None, name}:
         raise ProfileEmojiError("Discord returned an emoji with an unexpected name")
     emoji_id = _validate_emoji_id(created.get("id"))
@@ -644,13 +644,13 @@ def ensure(
 def ensure_image(
     image_path: str,
     name: str,
-    guild_id: str,
+    application_id: str,
     *,
     apply: bool,
 ) -> dict[str, Any]:
     client = EmojiDeliveryClient()
     result = _result_base(None, name)
-    matching = [emoji for emoji in client.list_guild_emojis(guild_id) if emoji.get("name") == name]
+    matching = [emoji for emoji in client.list_application_emojis(application_id) if emoji.get("name") == name]
     if len(matching) > 1:
         raise ProfileEmojiError("multiple Discord emojis use the requested name")
     if matching:
@@ -662,7 +662,7 @@ def ensure_image(
         result["action"] = "would_create"
         return result
 
-    created = client.create_guild_emoji(guild_id, name, image.png_bytes)
+    created = client.create_application_emoji(application_id, name, image.png_bytes)
     if created.get("name") not in {None, name}:
         raise ProfileEmojiError("Discord returned an emoji with an unexpected name")
     emoji_id = _validate_emoji_id(created.get("id"))
@@ -686,9 +686,9 @@ def _build_parser() -> argparse.ArgumentParser:
     prepare_parser = subparsers.add_parser("prepare", help="resolve and crop without contacting Discord")
     add_common(prepare_parser)
 
-    ensure_parser = subparsers.add_parser("ensure", help="return or create a guild emoji")
+    ensure_parser = subparsers.add_parser("ensure", help="return or create an application emoji")
     add_common(ensure_parser)
-    ensure_parser.add_argument("--guild-id", default=DEFAULT_GUILD_ID)
+    ensure_parser.add_argument("--application-id", default=DEFAULT_APPLICATION_ID)
     ensure_parser.add_argument(
         "--apply",
         action="store_true",
@@ -700,7 +700,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     image_parser.add_argument("--image-path", required=True)
     image_parser.add_argument("--emoji-name", required=True)
-    image_parser.add_argument("--guild-id", default=DEFAULT_GUILD_ID)
+    image_parser.add_argument("--application-id", default=DEFAULT_APPLICATION_ID)
     image_parser.add_argument(
         "--apply",
         action="store_true",
@@ -724,17 +724,17 @@ def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     try:
         if args.command == "ensure-image":
-            guild_id = _validate_guild_id(args.guild_id)
+            application_id = _validate_application_id(args.application_id)
             name = validate_emoji_name(args.emoji_name)
-            result = ensure_image(args.image_path, name, guild_id, apply=args.apply)
+            result = ensure_image(args.image_path, name, application_id, apply=args.apply)
         else:
             account = normalize_account(args.platform, args.account)
             name = resolve_emoji_name(account, args.emoji_name, args.profile_id)
             if args.command == "prepare":
                 result = prepare(account, name)
             else:
-                guild_id = _validate_guild_id(args.guild_id)
-                result = ensure(account, name, guild_id, apply=args.apply)
+                application_id = _validate_application_id(args.application_id)
+                result = ensure(account, name, application_id, apply=args.apply)
         _print_result(result, args.json)
         return 0
     except ProfileEmojiError as exc:
