@@ -168,9 +168,10 @@ class DeliveryClient:
             raise DeliveryClientError("invalid_operation")
         if operation.legacy_nonce is not None:
             raise DeliveryClientError("invalid_operation")
-        if operation.kind == "guild_emoji_create" and self._emoji_token_file is None:
+        emoji_kind = operation.kind in {"guild_emoji_create", "application_emoji_create"}
+        if emoji_kind and self._emoji_token_file is None:
             raise DeliveryClientError("emoji_credentials_required")
-        token = _load_token(self._emoji_token_file) if operation.kind == "guild_emoji_create" else self._token
+        token = _load_token(self._emoji_token_file) if emoji_kind else self._token
         body, content_type = _multipart_body(operation, include_legacy_nonce=False)
         response = self._request(
             "POST",
@@ -263,11 +264,17 @@ class DeliveryClient:
             raise DeliveryClientError("invalid_response") from None
 
     def list_guild_emojis(self, guild_id: str) -> list[dict[str, Any]]:
+        return self._list_emojis(DiscordQuery("guild_emojis", guild_id=guild_id), 500)
+
+    def list_application_emojis(self, application_id: str) -> list[dict[str, Any]]:
+        return self._list_emojis(DiscordQuery("application_emojis", application_id=application_id), 2000)
+
+    def _list_emojis(self, query: DiscordQuery, limit: int) -> list[dict[str, Any]]:
         try:
-            response = self.query(DiscordQuery("guild_emojis", guild_id=guild_id))
+            response = self.query(query)
         except ValidationError:
             raise DeliveryClientError("invalid_query") from None
-        if not isinstance(response, list) or len(response) > 500:
+        if not isinstance(response, list) or len(response) > limit:
             raise DeliveryClientError("invalid_response")
         emojis = []
         for item in response:
@@ -284,6 +291,17 @@ class DeliveryClient:
             operation = OperationIntent(
                 key=f"profile-emoji:{guild_id}:{name}", kind="guild_emoji_create",
                 ordering_key=f"guild-emoji:{guild_id}", target={"guild_id": guild_id},
+                payload={"name": name}, attachments=(Attachment("emoji.png", "image/png", png_bytes),),
+            )
+        except (ValidationError, TypeError):
+            raise DeliveryClientError("invalid_operation") from None
+        return self.submit(operation)
+
+    def create_application_emoji(self, application_id: str, name: str, png_bytes: bytes) -> OperationReceipt:
+        try:
+            operation = OperationIntent(
+                key=f"profile-emoji-app:{application_id}:{name}", kind="application_emoji_create",
+                ordering_key=f"application-emoji:{application_id}", target={"application_id": application_id},
                 payload={"name": name}, attachments=(Attachment("emoji.png", "image/png", png_bytes),),
             )
         except (ValidationError, TypeError):

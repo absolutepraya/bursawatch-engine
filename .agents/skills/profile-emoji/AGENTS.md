@@ -6,7 +6,7 @@ reusable agent skill, not a scheduled Hermes cron.
 ## Contract
 
 - `bin/profile-emoji` runs on the VPS and uses the shared Delivery Owner client
-  token file for guild reads and receipt polling. Creation loads a separate
+  token file for application emoji reads and receipt polling. Creation loads a separate
   mode-0600 emoji token file at `~/.hermes/secrets/bursawatch-discord-delivery-emoji-token`
   only when needed. Only the Delivery Owner reads the Discord bot token. No
   token or Instagram cookie moves to the Mac or appears in output.
@@ -16,13 +16,14 @@ reusable agent skill, not a scheduled Hermes cron.
   the image to a square, applies a circular transparent mask, and emits a
   static PNG suitable for a Discord custom emoji.
 - `prepare` resolves and transforms the image without contacting Discord.
-  `ensure` performs a read-only guild lookup by default and creates the emoji
+  `ensure` performs a read-only application emoji lookup by default and creates the emoji
   only when `--apply` is supplied. An existing name is returned unchanged.
 - The helper never deletes, recreates, or refreshes an existing emoji. It has
   no option for that behavior and keeps no profile-image state or manifest.
-- The default guild is the reviewed target guild `940285152335110204`. A
-  caller may provide an explicit guild ID, but the helper never guesses a
-  guild from the bot's guild list.
+- Emojis are application emojis owned by the Bursawatch bot application
+  `1502932232736735242` (default `--application-id`), up to 2000 per
+  application, usable in any server the bot posts to. The helper never creates
+  guild emojis and never guesses an application.
 
 The result includes the shorthand `:emoji_name:`, the full Discord markup
 `<:emoji_name:emoji_id>` when an ID exists, and the numeric emoji ID. Watcher

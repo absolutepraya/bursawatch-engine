@@ -20,7 +20,7 @@ custom static image asset.
    The downloaded image and generated PNG stay in VPS process memory. The
    helper has no image-file output option and does not write to `/tmp` or
    watcher state.
-3. During watcher research, run `ensure` without `--apply` if the guild result
+3. During watcher research, run `ensure` without `--apply` if the application emoji result
    is needed. It reports an existing emoji or `would_create` for an absent one
    and performs no Discord mutation.
 4. Draft the complete watcher profile and show the user the exact JSON. Do not
@@ -59,7 +59,7 @@ contains both forms and the numeric ID. `prepare` returns no Discord ID.
 
 - `prepare` never contacts Discord. `ensure` is read-only unless `--apply` is
   present.
-- The helper uses the shared Delivery Owner client token file for guild emoji
+- The helper uses the shared Delivery Owner client token file for application emoji
   reads and receipt polling. Creating an emoji requires the separate private
   `~/.hermes/secrets/bursawatch-discord-delivery-emoji-token` file, read only
   when creation is requested. Only the Delivery Owner reads the Discord bot token.

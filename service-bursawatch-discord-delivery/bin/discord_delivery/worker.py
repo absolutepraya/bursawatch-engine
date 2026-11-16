@@ -15,6 +15,12 @@ MAX_READ_PAGES = 3
 READ_PAGE_SIZE = 100
 
 
+def _emoji_query(kind: str, target: dict) -> dict:
+    if kind == "application_emoji_create":
+        return {"kind": "application_emojis", "application_id": target["application_id"]}
+    return {"kind": "guild_emojis", "guild_id": target["guild_id"]}
+
+
 @dataclass(frozen=True)
 class WorkerResult:
     status: str
@@ -135,8 +141,8 @@ class DeliveryWorker:
                 if len(ids) != len(threads) or any(not isinstance(value, str) or not value.isdigit() for value in ids):
                     raise GatewayError("invalid_response")
                 boundary = str(max(int(value) for value in ids))
-        elif intent.kind == "guild_emoji_create":
-            read = self.gateway.query({"kind": "guild_emojis", "guild_id": target["guild_id"]})
+        elif intent.kind in {"guild_emoji_create", "application_emoji_create"}:
+            read = self.gateway.query(_emoji_query(intent.kind, target))
             if any(item["name"] == intent.payload["name"] for item in read):
                 raise GatewayError("emoji_name_taken")
         metadata = self.store.stored_attachments(record.key)
@@ -186,10 +192,10 @@ class DeliveryWorker:
             if operation.kind in {"forum_channel_create", "text_channel_create"}:
                 # Discord has no safe guild channel history boundary for this create.
                 return ReconcileResult("inconclusive")
-            if operation.kind == "guild_emoji_create":
+            if operation.kind in {"guild_emoji_create", "application_emoji_create"}:
                 if not snapshot.get("boundary_observed", False):
                     return ReconcileResult("inconclusive")
-                read = self.gateway.query({"kind": "guild_emojis", "guild_id": intent.target["guild_id"]})
+                read = self.gateway.query(_emoji_query(operation.kind, intent.target))
                 if any(item["name"] == intent.payload["name"] for item in read):
                     # Discord supplies no nonce or image digest on an emoji. A name alone
                     # cannot prove that this request created the returned asset.

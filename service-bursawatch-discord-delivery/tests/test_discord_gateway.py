@@ -50,6 +50,39 @@ def test_guild_emoji_query_returns_only_bounded_safe_fields():
     assert session.calls[0][:2] == ("GET", "https://discord.com/api/v10/guilds/123/emojis")
 
 
+def application_emoji_intent(data=b"\x89PNG\r\n\x1a\npixels"):
+    return OperationIntent("profile-emoji-app:123:writer", "application_emoji_create", "application-emoji:123",
+                           {"application_id": "123"}, {"name": "writer"},
+                           (Attachment("emoji.png", "image/png", data),))
+
+
+def test_application_emoji_create_posts_to_the_application_endpoint(tmp_path):
+    data = b"\x89PNG\r\n\x1a\npixels"
+    path = tmp_path / "emoji.png"
+    path.write_bytes(data)
+    staged = StoredAttachment("emoji.png", "image/png", path, hashlib.sha256(data).hexdigest())
+    session = Session([Response(body={"id": "456", "name": "writer"})])
+    gateway = DiscordGateway("secret", session=session)
+    assert gateway.execute(application_emoji_intent(data), (staged,)) == {"emoji_id": "456"}
+    method, url, options = session.calls[0]
+    assert (method, url) == ("POST", "https://discord.com/api/v10/applications/123/emojis")
+    assert options["json"] == {"name": "writer", "image": "data:image/png;base64," + base64.b64encode(data).decode()}
+
+
+def test_application_emoji_query_unwraps_items_and_keeps_only_safe_fields():
+    session = Session([Response(body={"items": [{"id": "456", "name": "writer", "animated": False,
+                                                 "user": {"id": "1"}}]})])
+    result = DiscordGateway("secret", session=session).query({"kind": "application_emojis", "application_id": "123"})
+    assert result == [{"id": "456", "name": "writer", "animated": False, "managed": False}]
+    assert session.calls[0][:2] == ("GET", "https://discord.com/api/v10/applications/123/emojis")
+
+
+def test_application_emoji_query_rejects_an_unwrapped_list():
+    session = Session([Response(body=[{"id": "456", "name": "writer"}])])
+    with pytest.raises(GatewayError):
+        DiscordGateway("secret", session=session).query({"kind": "application_emojis", "application_id": "123"})
+
+
 class Session:
     def __init__(self, responses):
         self.responses = iter(responses)
