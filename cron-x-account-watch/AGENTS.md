@@ -117,10 +117,10 @@ an explicit reviewed name. Invoke it through SSH:
 ssh vps '~/.agents/skills/profile-emoji/bin/profile-emoji prepare --platform x --account https://x.com/<handle> --profile-id <stable_id> --json'
 ```
 
-During research, run `ensure` without `--apply` when the guild result is
+During research, run `ensure` without `--apply` when the application emoji result is
 needed. It returns an existing emoji without changing it, or reports
-`would_create` when the name is absent. The helper's default guild is the
-reviewed target guild. Do not pass Yanto's token or any Instagram cookie from
+`would_create` when the name is absent. The helper's default target is the
+Bursawatch bot application `1502932232736735242`. Do not pass Yanto's token or any Instagram cookie from
 the Mac, and do not use an arbitrary image URL.
 
 The proposed profile's `emoji` value must be the full `<:name:id>` markup. If
