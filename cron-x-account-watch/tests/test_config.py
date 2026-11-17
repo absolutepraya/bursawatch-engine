@@ -131,6 +131,22 @@ def test_canonical_jukan_profile_is_us_global_routed_and_unthreaded():
     assert profile.forward_reply is False and profile.forward_repost is False
 
 
+def test_canonical_wall_st_engine_profile_is_us_global_routed_and_unthreaded():
+    canonical_config = Path(__file__).resolve().parents[1] / "config" / "watches.json"
+    profile = {item.id: item for item in config_module.load_watch_config(canonical_config).profiles}["wallstengine"]
+
+    assert profile.handle == "wallstengine"
+    assert profile.display_name == "Wall St Engine"
+    assert profile.emoji == "<:wallstengine:1572072448491524168>"
+    assert profile.enabled is False  # the seed starts disabled; the reviewed cutover enables it
+    assert [channel.key for channel in profile.discord_channels] == [
+        "macro_news", "us_stocks_news", "global_company_news", "us_industry_news", "global_industry_news",
+    ]
+    assert profile.relevance_scope == "stock_market"
+    assert profile.thread_handling.mode == "disabled"
+    assert profile.forward_reply is False and profile.forward_repost is False
+
+
 def test_canonical_thread_handling_matches_writer_patterns():
     canonical_config = Path(__file__).resolve().parents[1] / "config" / "watches.json"
     profiles = {profile.id: profile for profile in config_module.load_watch_config(canonical_config).profiles}

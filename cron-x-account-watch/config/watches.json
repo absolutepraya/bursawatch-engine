@@ -594,6 +594,63 @@
         "settle_minutes": 60
       },
       "show_quoted_post": false
+    },
+    {
+      "id": "wallstengine",
+      "enabled": false,
+      "source": "rsshub",
+      "profile_url": "https://x.com/wallstengine",
+      "handle": "wallstengine",
+      "display_name": "Wall St Engine",
+      "twitter_emoji": "<:twitter:1571819395527737445>",
+      "emoji": "<:wallstengine:1572072448491524168>",
+      "discord_channels": [
+        {
+          "key": "macro_news",
+          "channel_id": "1531655369884045382",
+          "description": "Broad economic, business, market, sector, and cross-asset analysis."
+        },
+        {
+          "key": "us_stocks_news",
+          "channel_id": "1532266331737686199",
+          "description": "Substantive news focused on one US-based company, whether public, private, pre-IPO, or formerly listed. Route by primary business home, independently of listing exchange."
+        },
+        {
+          "key": "global_company_news",
+          "channel_id": "1567462643365711892",
+          "description": "Substantive news focused on one company based outside Indonesia and the US, or with unresolved business home. Includes public, private, pre-IPO, and formerly listed companies."
+        },
+        {
+          "key": "us_industry_news",
+          "channel_id": "1567702055919820800",
+          "description": "Industry developments focused on the US, including US sector indices and US company aggregates."
+        },
+        {
+          "key": "global_industry_news",
+          "channel_id": "1567704469360353354",
+          "description": "Industry developments outside Indonesia/US, worldwide or cross-border stories, or unresolved geography."
+        }
+      ],
+      "forward_normal_post": true,
+      "forward_quote_post": true,
+      "forward_reply": false,
+      "forward_repost": false,
+      "forward_media": true,
+      "media_policy": "all",
+      "enable_llm_title": true,
+      "enable_llm_summary": true,
+      "enable_llm_routing": true,
+      "enable_llm_relevance_filter": true,
+      "relevance_scope": "stock_market",
+      "additional_prompt_instruction": "Wall St Engine is a US market and technology news wire covering corporate, earnings, AI and semiconductor, capital-markets and macro headlines. Forward posts that report a concrete company, earnings, guidance, valuation, funding or IPO, executive-change, product or benchmark, regulatory, or macro-data development. Exclude promotional posts, giveaways, jokes and engagement bait, and personal or political commentary that carries no explicit market or stock implication.",
+      "max_items_per_poll": 50,
+      "thread_handling": {
+        "mode": "disabled",
+        "max_posts": 10,
+        "max_age_minutes": 240,
+        "settle_minutes": 60
+      },
+      "show_quoted_post": false
     }
   ]
 }

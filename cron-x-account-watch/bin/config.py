@@ -18,6 +18,7 @@ REVIEWED_PUBLISHERS = {
     "aldotjahjadi8": "x-aldotjahjadi8", "kobeissiletter": "x-kobeissiletter",
     "aleabitoreddit": "x-aleabitoreddit",
     "jukan05": "x-jukan05",
+    "wallstengine": "x-wallstengine",
 }
 
 

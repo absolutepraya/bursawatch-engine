@@ -1308,26 +1308,32 @@ def _generation_world(monkeypatch):
             "enabled": capability in enabled_routes,
         } for capability in ("company_news", "macro_news", "swing_chart_context")]
 
-    prior_rows, serenity_rows, jukan_rows = [], [], []
+    prior_rows, serenity_rows, jukan_rows, wse_rows = [], [], [], []
     for profile in profiles:
         if profile.id == "aleabitoreddit":
             serenity_rows = route_rows(profile, {"company_news", "macro_news"})
         elif profile.id == "jukan05":
             jukan_rows = route_rows(profile, {"company_news", "macro_news"})
+        elif profile.id == "wallstengine":
+            wse_rows = route_rows(profile, {"company_news", "macro_news"})
         else:
             prior_rows += route_rows(profile, {"company_news", "macro_news"} if profile.id in BASE_ENABLED else set())
     key = lambda row: (row["endpoint_id"], row["capability_id"])
     prior_rows.sort(key=key)
     target_rows = sorted(prior_rows + serenity_rows, key=key)
     rows10 = sorted(target_rows + jukan_rows, key=key)
+    rows11 = sorted(rows10 + wse_rows, key=key)
     sha = lambda rows: hashlib.sha256(x_transition._canonical(rows)).hexdigest()
     monkeypatch.setattr(x_transition, "REVIEWED_PROJECTION_SHA256", sha(prior_rows))
     monkeypatch.setattr(x_transition, "REVIEWED_PROJECTION_SHA256_REV9", sha(target_rows))
     monkeypatch.setattr(x_transition, "REVIEWED_PROJECTION_SHA256_REV10", sha(rows10))
+    monkeypatch.setattr(x_transition, "REVIEWED_PROJECTION_SHA256_REV11", sha(rows11))
     monkeypatch.setattr(x_transition, "load_watch_config_for_run",
                         lambda: SimpleNamespace(revision=17, config=SimpleNamespace(profiles=profiles)))
     _generation_world.rev10 = ({"revision": 10, "subscriptions": rows10},
                                tuple(replace(p, enabled=True) if p.id == "jukan05" else p for p in profiles9))
+    profiles11 = tuple(replace(p, enabled=True) if p.id == "wallstengine" else p for p in _generation_world.rev10[1])
+    _generation_world.rev11 = ({"revision": 11, "subscriptions": rows11}, profiles11)
     return profiles, profiles9, {"revision": 8, "subscriptions": prior_rows}, {"revision": 9, "subscriptions": target_rows}
 
 
@@ -1664,3 +1670,120 @@ def test_generation_edge_revision_10_fails_closed_unless_jukan_profile_and_catal
     with pytest.raises(IntakeBlocked):  # watcher profile on, catalog subscription still absent
         run_once(target, profiles10, root, Inbox(), NOW, fetch_profile=_fetch_one)
     assert _cursor_bytes(root) == before
+
+
+# --- Reviewed generation edge: catalog revision 10 to 11 (Wall St Engine) ---------
+
+WSE = "x:wallstengine"
+
+
+def _rev10_root(tmp_path, monkeypatch):
+    """A root that went through the real 8 to 9 and 9 to 10 edges, exactly like production."""
+    root, _profiles9, target, profiles10, snapshot10 = _rev9_root(tmp_path, monkeypatch)
+    x_transition.apply(x_transition.preview(target, snapshot10, root), target, snapshot10, root)
+    run_once(snapshot10, profiles10, root, Inbox(), NOW, fetch_profile=_fetch_one)  # Jukan bootstraps future-only
+    snapshot11, profiles11 = _generation_world.rev11
+    return root, snapshot10, profiles10, snapshot11, profiles11
+
+
+def test_generation_edge_10_to_11_keeps_every_journal_and_bootstraps_future_only(tmp_path, monkeypatch):
+    root, snapshot10, profiles10, snapshot11, profiles11 = _rev10_root(tmp_path, monkeypatch)
+    before = _cursor_bytes(root)
+    assert len(before) == 10
+    plan = x_transition.preview(snapshot10, snapshot11, root)
+    assert (plan["from_revision"], plan["to_revision"], plan["added_endpoint"]) == (10, 11, WSE)
+    assert x_transition.apply(plan, snapshot10, snapshot11, root)["to_revision"] == 11
+    record = json.loads((root / "catalog-revision.json").read_text())
+    assert record["revision"] == 11 and record["generation"]["edge"] == "10-to-11"
+    assert record["generation"]["projection_sha256"] == x_transition.REVIEWED_PROJECTION_SHA256_REV11
+    assert {p.name for p in (root / "catalog-transitions").iterdir()} == {
+        "generation-8-to-9.json", "generation-9-to-10.json", "generation-10-to-11.json"}
+    assert _cursor_bytes(root) == before
+    assert x_transition.apply(plan, snapshot10, snapshot11, root)["status"] == "applied"  # idempotent
+    inbox = Inbox()
+    outcomes = run_once(snapshot11, profiles11, root, inbox, NOW, fetch_profile=_fetch_one)
+    by_endpoint = {row["endpoint_id"]: row for row in outcomes}
+    assert len(outcomes) == 11 and inbox.events == []
+    assert by_endpoint[WSE]["status"] == "bootstrapped" and all(row["accepted"] == 0 for row in outcomes)
+    with pytest.raises(IntakeBlocked):
+        x_transition.require_catalog_revision(root, 10, lambda *_a: None, snapshot=snapshot10, profiles=profiles10)
+
+
+def test_generation_edge_10_to_11_resumes_after_interruption(tmp_path, monkeypatch):
+    root, snapshot10, _profiles10, snapshot11, profiles11 = _rev10_root(tmp_path, monkeypatch)
+    plan = x_transition.preview(snapshot10, snapshot11, root)
+    real = x_transition._write_private_json
+    marker = root / "catalog-revision.json"
+
+    def crash_on_marker(path, value):
+        if path == marker:
+            raise OSError("simulated crash before the marker is replaced")
+        return real(path, value)
+
+    monkeypatch.setattr(x_transition, "_write_private_json", crash_on_marker)
+    with pytest.raises(OSError):
+        x_transition.apply(plan, snapshot10, snapshot11, root)
+    assert json.loads(marker.read_text())["revision"] == 10
+    monkeypatch.setattr(x_transition, "_write_private_json", real)
+    resumed = x_transition.preview(snapshot10, snapshot11, root)
+    assert resumed == plan
+    assert x_transition.apply(resumed, snapshot10, snapshot11, root)["status"] == "applied"
+    x_transition.require_catalog_revision(root, 11, lambda *_a: None, snapshot=snapshot11, profiles=profiles11)
+
+
+@pytest.mark.parametrize("change", ["extra_row_changed", "other_endpoint_added", "prior_row_missing", "wrong_revision"])
+def test_generation_edge_10_to_11_rejects_anything_but_the_reviewed_wall_st_engine_rows(tmp_path, monkeypatch, change):
+    root, snapshot10, _profiles10, snapshot11, _profiles11 = _rev10_root(tmp_path, monkeypatch)
+    bad = json.loads(json.dumps(snapshot11))
+    if change == "extra_row_changed":
+        bad["subscriptions"][0]["settings"] = {"changed": True}
+    elif change == "other_endpoint_added":
+        bad["subscriptions"].append(dict(bad["subscriptions"][0], endpoint_id="x:someoneelse"))
+    elif change == "prior_row_missing":
+        bad["subscriptions"].pop(0)
+    else:
+        bad["revision"] = 12
+    with pytest.raises(x_transition.TransitionBlocked):
+        x_transition.preview(snapshot10, bad, root)
+    assert json.loads((root / "catalog-revision.json").read_text())["revision"] == 10
+
+
+@pytest.mark.parametrize("tamper", ["extra_entry", "missing_edge_journal", "earlier_journal_permission", "earlier_journal_marker"])
+def test_generation_edge_10_to_11_runtime_rejects_tampered_journals(tmp_path, monkeypatch, tamper):
+    root, snapshot10, _profiles10, snapshot11, profiles11 = _rev10_root(tmp_path, monkeypatch)
+    x_transition.apply(x_transition.preview(snapshot10, snapshot11, root), snapshot10, snapshot11, root)
+    directory = root / "catalog-transitions"
+    if tamper == "extra_entry":
+        (directory / "unexpected.json").write_text("{}")
+    elif tamper == "missing_edge_journal":
+        (directory / "generation-10-to-11.json").unlink()
+    elif tamper == "earlier_journal_permission":
+        (directory / "generation-9-to-10.json").chmod(0o644)
+    else:
+        earlier = directory / "generation-9-to-10.json"
+        data = json.loads(earlier.read_text())
+        data["plan"]["target_marker"]["generation"]["projection_sha256"] = "0" * 64
+        earlier.write_text(json.dumps(data))
+    with pytest.raises(IntakeBlocked):
+        x_transition.require_catalog_revision(root, 11, lambda *_a: None, snapshot=snapshot11, profiles=profiles11)
+
+
+def test_generation_edge_revision_11_fails_closed_unless_profile_and_catalog_agree(tmp_path, monkeypatch):
+    root, snapshot10, profiles10, snapshot11, profiles11 = _rev10_root(tmp_path, monkeypatch)
+    x_transition.apply(x_transition.preview(snapshot10, snapshot11, root), snapshot10, snapshot11, root)
+    before = _cursor_bytes(root)
+    with pytest.raises(IntakeBlocked):
+        run_once(snapshot11, profiles10, root, Inbox(), NOW, fetch_profile=_fetch_one)
+    with pytest.raises(IntakeBlocked):
+        run_once(snapshot10, profiles11, root, Inbox(), NOW, fetch_profile=_fetch_one)
+    assert _cursor_bytes(root) == before
+
+
+def test_generation_edge_fresh_generation_may_start_at_reviewed_revision_11(tmp_path, monkeypatch):
+    _generation_world(monkeypatch)
+    snapshot11, profiles11 = _generation_world.rev11
+    root = tmp_path / "fresh11"
+    outcomes = run_once(snapshot11, profiles11, root, Inbox(), NOW, fetch_profile=_fetch_one)
+    assert len(outcomes) == 11 and all(row["status"] == "bootstrapped" for row in outcomes)
+    marker = json.loads((root / "catalog-revision.json").read_text())
+    assert marker["revision"] == 11 and "edge" not in marker["generation"]

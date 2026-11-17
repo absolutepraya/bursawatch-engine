@@ -67,7 +67,7 @@ def test_x_route_compatibility_is_grouped_and_disabled_until_configured():
     catalog = api.get("/v1/source-catalog", headers=ADMIN).json()
     effective = api.get("/v1/source-catalog/effective", headers=MACHINE).json()
     x_ids = {item["id"] for item in catalog["endpoints"] if item["platform"] == "x"}
-    assert len(x_ids) == 12
+    assert len(x_ids) == 13
     grouped = [item for item in catalog["compatibility"] if item["endpoint_id"] in x_ids]
     assert {(item["endpoint_id"], item["capability_id"], item["dispatch_group"]) for item in grouped} == {
         (endpoint_id, capability, "x_post_route")
@@ -76,7 +76,7 @@ def test_x_route_compatibility_is_grouped_and_disabled_until_configured():
     }
     assert all(item["dispatch_group"] is None for item in catalog["compatibility"] if item["endpoint_id"] not in x_ids)
     x_subs = [item for item in effective["subscriptions"] if item["endpoint_id"] in x_ids]
-    assert len(x_subs) == 36
+    assert len(x_subs) == 39
     assert all(item["dispatch_group"] == "x_post_route" and item["enabled"] is False and item["source"] == "unset" for item in x_subs)
     assert all(item["dispatch_group"] is None for item in effective["subscriptions"] if item["endpoint_id"] not in x_ids)
 
@@ -184,7 +184,7 @@ def test_every_seeded_endpoint_matches_checked_in_source_identity_and_provider_i
     # 013 seeded the original registry; later migrations add reviewed endpoints one at a time.
     migration = "".join(
         (root / "service-bursawatch-control/migrations" / name).read_text()
-        for name in ("013_source_catalog.sql", "030_x_serenity_source_registration.sql", "031_x_jukan_source_registration.sql")
+        for name in ("013_source_catalog.sql", "030_x_serenity_source_registration.sql", "031_x_jukan_source_registration.sql", "032_x_wallstengine_source_registration.sql")
     )
     for endpoint_id, (publisher_id, address, provider_id) in expected.items():
         row = actual[endpoint_id]
@@ -296,9 +296,9 @@ def test_every_x_endpoint_registered_after_017_is_put_in_the_route_group():
     # The stored dispatch_group column is not derived from the endpoint platform, so a migration
     # that registers an X endpoint after 017 must set it explicitly on each route capability.
     root = Path(__file__).resolve().parents[1] / "migrations"
-    text = "".join((root / name).read_text() for name in ("030_x_serenity_source_registration.sql", "031_x_jukan_source_registration.sql"))
+    text = "".join((root / name).read_text() for name in ("030_x_serenity_source_registration.sql", "031_x_jukan_source_registration.sql", "032_x_wallstengine_source_registration.sql"))
     registered = set(re.findall(r"values \('(x:[a-z0-9_]+)', 'x-", text))
-    assert registered == {"x:aleabitoreddit", "x:jukan05"}
+    assert registered == {"x:aleabitoreddit", "x:jukan05", "x:wallstengine"}
     for endpoint_id in registered:
         for capability in ("company_news", "macro_news", "swing_chart_context"):
             assert f"values ('{endpoint_id}', '{capability}', 'x_post_route');" in text
