@@ -1748,7 +1748,7 @@ def test_generation_edge_10_to_11_rejects_anything_but_the_reviewed_wall_st_engi
     assert json.loads((root / "catalog-revision.json").read_text())["revision"] == 10
 
 
-@pytest.mark.parametrize("tamper", ["extra_entry", "missing_edge_journal", "earlier_journal_permission", "earlier_journal_marker"])
+@pytest.mark.parametrize("tamper", ["extra_entry", "missing_edge_journal", "missing_intermediate_journal", "earlier_journal_permission", "earlier_journal_marker"])
 def test_generation_edge_10_to_11_runtime_rejects_tampered_journals(tmp_path, monkeypatch, tamper):
     root, snapshot10, _profiles10, snapshot11, profiles11 = _rev10_root(tmp_path, monkeypatch)
     x_transition.apply(x_transition.preview(snapshot10, snapshot11, root), snapshot10, snapshot11, root)
@@ -1757,6 +1757,8 @@ def test_generation_edge_10_to_11_runtime_rejects_tampered_journals(tmp_path, mo
         (directory / "unexpected.json").write_text("{}")
     elif tamper == "missing_edge_journal":
         (directory / "generation-10-to-11.json").unlink()
+    elif tamper == "missing_intermediate_journal":
+        (directory / "generation-9-to-10.json").unlink()  # 8-to-9 and 10-to-11 remain, with a gap between them
     elif tamper == "earlier_journal_permission":
         (directory / "generation-9-to-10.json").chmod(0o644)
     else:

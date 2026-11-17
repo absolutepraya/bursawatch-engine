@@ -341,9 +341,11 @@ def _require_generation_journal(root: Path, record: dict[str, Any], allow_extra:
     names = {target: GENERATION_EDGES[target]["journal"] for target in chain}
     if names[revision] not in entries or entries - set(names.values()) - allow_extra:
         raise IntakeBlocked("X generation transition history has a gap or unexpected entry")
-    for target in chain:
-        if names[target] in entries:
-            _validate_edge_journal(root, target, expected_marker=record if target == revision else None)
+    present = [target for target in chain if names[target] in entries]
+    if present != chain[len(chain) - len(present):]:  # a root may start at a later revision, but never skips an edge it passed through
+        raise IntakeBlocked("X generation transition history has a gap or unexpected entry")
+    for target in present:
+        _validate_edge_journal(root, target, expected_marker=record if target == revision else None)
 
 
 def _generation_plan(prior: dict[str, Any], target: dict[str, Any], root: Path) -> dict[str, Any]:
