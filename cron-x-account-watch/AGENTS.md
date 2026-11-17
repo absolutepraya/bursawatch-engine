@@ -179,7 +179,7 @@ A watcher profile alone never starts intake, and a new X account cannot be
 onboarded by configuration or a data migration alone. `cron-x-source-ingest` is
 pinned to a reviewed source-catalog revision and the exact effective projection
 of every X registry row (`REVIEWED_PROJECTION_SHA256` and
-`..._REV9`, `..._REV10`), and the Telegram and RSS ingests are pinned
+`..._REV9`, `..._REV10`, `..._REV11`), and the Telegram and RSS ingests are pinned
 to their state markers, so registering another X endpoint or publishing a new
 catalog revision makes the affected intake run fail closed for every account until
 each state root completes a reviewed transition. An enabled profile without a
@@ -199,7 +199,8 @@ transition on the live state roots, and confirm the next heartbeats. The git
 profile. Serenity (@aleabitoreddit) was first attempted by data changes alone on
 2026-11-13, which stopped X and Telegram intake and was rolled back (migration
 029); migration 030 and the generation edge are the reviewed path. Jukan (@jukan05)
-followed it with migration 031 and the 9 to 10 edge. A new profile's emoji is an
+followed it with migration 031 and the 9 to 10 edge, Wall St Engine (@wallstengine) with
+migration 032 and the 10 to 11 edge. A new profile's emoji is an
 application emoji created with `profile-emoji` before the seed is written.
 
 The onboarding response must clearly separate observed facts, proposed defaults,

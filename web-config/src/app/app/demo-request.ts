@@ -304,6 +304,7 @@ const sourceNames: Record<string, string> = {
   kobeissiletter: "The Kobeissi Letter",
   aleabitoreddit: "Serenity",
   jukan05: "Jukan",
+  wallstengine: "Wall St Engine",
 };
 
 function emptyCatalogConfig(): CatalogConfig {

@@ -101,9 +101,9 @@ blocks intake.
 A future-only generation root (one whose marker carries the frozen `generation`
 proof) advances only through the reviewed generation edges in the same helper
 (`GENERATION_EDGES`): 8 to 9 adds exactly the three route rows of the reviewed
-Serenity endpoint (`x:aleabitoreddit`) and 9 to 10 adds exactly those of Jukan
-(`x:jukan05`); the projections are pinned (`REVIEWED_PROJECTION_SHA256`,
-`..._REV9`, `..._REV10`).
+Serenity endpoint (`x:aleabitoreddit`), 9 to 10 those of Jukan (`x:jukan05`) and
+10 to 11 those of Wall St Engine (`x:wallstengine`); the projections are pinned
+(`REVIEWED_PROJECTION_SHA256`, `..._REV9`, `..._REV10`, `..._REV11`).
 `preview` proves the prior and target projections, that nothing else changed,
 and fingerprints every state file; `apply` additionally needs the unchanged
 preview plan and `BURSAWATCH_X_CATALOG_TRANSITION_ALLOW_APPLY=1`. It writes the

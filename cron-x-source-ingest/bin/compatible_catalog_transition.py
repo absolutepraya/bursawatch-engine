@@ -33,15 +33,18 @@ REVIEWED_PROJECTION_SHA256 = "877e8fce0e374dc2c94e876455d10087298ff837071d82c19d
 REVIEWED_PROJECTION_SHA256_REV9 = "f33381a2d0e452493d6c2f18ec63ce27b1433991abc247758b4e53db7c7f9a48"
 # Revision 10 is revision 9 plus exactly the three route rows of the reviewed Jukan endpoint.
 REVIEWED_PROJECTION_SHA256_REV10 = "c445298ecee3ffdc2d4d04f481abe0f16397623a0b9fb559d6c214fe15690f86"
-GENERATION_REVISIONS = (8, 9, 10)
+# Revision 11 is revision 10 plus exactly the three route rows of the reviewed Wall St Engine endpoint.
+REVIEWED_PROJECTION_SHA256_REV11 = "7c2703d658365d4422668d5af54ffac4fe4a0d22abb1fc14e0a19c05a68521c3"
+GENERATION_REVISIONS = (8, 9, 10, 11)
 # Reviewed generation edges: target revision -> (prior revision, added endpoint, journal name, marker label).
 GENERATION_EDGES = {
     9: {"prior": 8, "endpoint": "x:aleabitoreddit", "journal": "generation-8-to-9.json", "label": "8-to-9"},
     10: {"prior": 9, "endpoint": "x:jukan05", "journal": "generation-9-to-10.json", "label": "9-to-10"},
+    11: {"prior": 10, "endpoint": "x:wallstengine", "journal": "generation-10-to-11.json", "label": "10-to-11"},
 }
 # The catalog revision at which each reviewed profile becomes enabled, and the number of enabled profiles at each revision.
-PROFILE_ENABLED_FROM = {"aleabitoreddit": 9, "jukan05": 10}
-ENABLED_PROFILES_AT = {8: 8, 9: 9, 10: 10}
+PROFILE_ENABLED_FROM = {"aleabitoreddit": 9, "jukan05": 10, "wallstengine": 11}
+ENABLED_PROFILES_AT = {8: 8, 9: 9, 10: 10, 11: 11}
 TRANSITION_TYPE = "x-compatible-catalog-transition"
 
 
@@ -74,7 +77,7 @@ def _state_root(value: Path) -> Path:
 
 
 def _reviewed_projection(revision: int) -> str | None:
-    return {8: REVIEWED_PROJECTION_SHA256, 9: REVIEWED_PROJECTION_SHA256_REV9, 10: REVIEWED_PROJECTION_SHA256_REV10}.get(revision)
+    return {8: REVIEWED_PROJECTION_SHA256, 9: REVIEWED_PROJECTION_SHA256_REV9, 10: REVIEWED_PROJECTION_SHA256_REV10, 11: REVIEWED_PROJECTION_SHA256_REV11}.get(revision)
 
 
 def _projection(snapshot: dict[str, Any], profiles: tuple[Any, ...], allowed_selected: tuple[int, ...] = (8,)) -> list[dict[str, Any]]:
@@ -338,9 +341,11 @@ def _require_generation_journal(root: Path, record: dict[str, Any], allow_extra:
     names = {target: GENERATION_EDGES[target]["journal"] for target in chain}
     if names[revision] not in entries or entries - set(names.values()) - allow_extra:
         raise IntakeBlocked("X generation transition history has a gap or unexpected entry")
-    for target in chain:
-        if names[target] in entries:
-            _validate_edge_journal(root, target, expected_marker=record if target == revision else None)
+    present = [target for target in chain if names[target] in entries]
+    if present != chain[len(chain) - len(present):]:  # a root may start at a later revision, but never skips an edge it passed through
+        raise IntakeBlocked("X generation transition history has a gap or unexpected entry")
+    for target in present:
+        _validate_edge_journal(root, target, expected_marker=record if target == revision else None)
 
 
 def _generation_plan(prior: dict[str, Any], target: dict[str, Any], root: Path) -> dict[str, Any]:
