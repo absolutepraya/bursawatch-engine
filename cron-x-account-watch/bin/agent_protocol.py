@@ -16,6 +16,7 @@ from collections.abc import Mapping
 from pathlib import Path
 import re
 
+import language_guard
 import render
 from article_context import ArticleBundle, ArticleSource, MAX_ARTICLE_CHARACTERS, MAX_ARTICLE_URLS
 from models import Profile, SourcePost
@@ -443,12 +444,20 @@ def build_wake_payload(item: Mapping[str, object] | None) -> dict[str, object]:
     return {"wakeAgent": True, "item": dict(item)}
 
 
+def _require_indonesian(text: str, field: str) -> None:
+    language = language_guard.foreign_language(text)
+    if language is not None:
+        names = {"es": "Spanish", "pt": "Portuguese", "en": "English"}
+        raise ValueError(f"{field} is written in {names[language]}; rewrite the {field} in Bahasa Indonesia")
+
+
 def validate_summary(value: object) -> str:
     if not isinstance(value, str):
         raise ValueError("summary must be text")
     summary = news_format.normalize_summary(value, marked=True)
     if not news_format.normalize_summary(value) or len(summary) > MAX_SUMMARY_CHARACTERS:
         raise ValueError("summary must contain bounded nonempty text")
+    _require_indonesian(summary, "summary")
     return summary
 
 
@@ -460,6 +469,7 @@ def validate_title(value: object) -> str:
         raise ValueError(f"title must be from 5 to {MAX_TITLE_CHARACTERS} characters")
     if "http://" in title.lower() or "https://" in title.lower() or title.endswith((".", "!", "?")):
         raise ValueError("title must be a plain headline without a link or ending punctuation")
+    _require_indonesian(title, "title")
     return title
 
 

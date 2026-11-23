@@ -24,7 +24,7 @@ def test_source_company_identity_survives_submission(name, ticker, market, home,
     profile = config.load_watch_config(config_path).profiles[0]
     monkeypatch.setattr(news_identity, "lookup_company", lambda query, selected: {"status":"verified", "ticker":ticker} if query == ticker and selected == market else {"status":"unresolved"})
     route = "us_stocks_news" if home == "US" else "id_stocks_news"
-    payload = {"event_key":"source:1", "is_relevant":True, "items":[{"title":ticker + ": Company update", "summary":text, "route":route, "ticker":ticker,
+    payload = {"event_key":"source:1", "is_relevant":True, "items":[{"title":ticker + ": Company update", "summary":("Saham Snapchat turun lebih dari 10% setelah laporan keuangan." if name == "Snapchat" else text), "route":route, "ticker":ticker,
         "subject":{"kind":"company", "name":name, "evidence":text, "company":{"business_home":home, "listing_status":"listed", "security_market":market}}}]}
     result = agent_protocol.validate_submission(profile, payload, subject_required=True, company_required=True, source_text=text)
     assert result["news_items"][0]["route"] == route

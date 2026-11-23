@@ -516,3 +516,29 @@ def test_agent_instruction_includes_profile_specific_instruction(config_path, pr
     config_path.write_text(__import__("json").dumps({"version": 1, "profiles": [profile_payload]}), encoding="utf-8")
     profile = __import__("config").load_watch_config(config_path).profiles[0]
     assert "Profile-specific instruction: Keep only data-backed market analysis." in agent_protocol.instruction_for(profile)
+
+
+@pytest.mark.parametrize("text", [
+    "Netlify relança plataforma de IA e projeta ARR de US$ 130 milhões em 2026",
+    "Ações de cibersegurança avançam após alerta sobre ataques ampliados por IA",
+    "110.000 inversores minoristas consiguieron acciones de Anthropic en una salida a bolsa descrita como récord, y la demanda superó ampliamente la oferta",
+    "The company said that it will report earnings after the close and that shares are up on the news",
+])
+def test_generated_text_in_another_language_is_rejected(text):
+    with pytest.raises(ValueError, match="Bahasa Indonesia"):
+        agent_protocol.validate_summary(text)
+
+
+@pytest.mark.parametrize("text", [
+    "Anthropic mulai diperdagangkan di Nasdaq pada harga US$97,17 setelah IPO senilai US$81 miliar",
+    "Trump menyebut akan mengenakan \"tremendous tax\" kepada perusahaan yang membangun pusat data di luar negeri",
+    "NVDA: Nvidia menghadapi serangkaian penyelidikan dan gugatan",
+    "Bank SMBC Indonesia berencana go private dan delisting dari BEI",
+])
+def test_indonesian_text_with_quotes_and_names_is_accepted(text):
+    assert agent_protocol.validate_summary(text)
+
+
+def test_title_in_another_language_is_rejected():
+    with pytest.raises(ValueError, match="Bahasa Indonesia"):
+        agent_protocol.validate_title("Ações de cibersegurança avançam após alerta sobre ataques")

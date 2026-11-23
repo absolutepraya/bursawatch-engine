@@ -426,3 +426,7 @@ appends a Scanner note with the last fix to its wake instruction, and the third 
 (suppressed like a missing destination, with a warning control event), so one unfixable post cannot be re-claimed every
 15 minutes forever. A test fails when a validator raises a message that has no guidance. Malformed JSON gets its own
 guidance but is not attributed to an event, so it is not counted.
+
+## Output language guard
+
+`bin/language_guard.py` rejects a generated title or summary that is clearly Spanish, Portuguese or English (function-word counts, no rewriting). `validate_title` and `validate_summary` raise a `ValueError` naming the detected language, which reaches the agent as validator feedback so it can resubmit in Bahasa Indonesia. Names, tickers, short quotations and mixed text pass.
