@@ -135,6 +135,7 @@ submitting `swing_board_update`. Starters link to their source publication;
 replies and later lifecycle actions link to the episode starter publication.
 The durable retry ledger and contiguous checkpoint live in Board SQLite.
 Projection failures never reopen an outbox operation or create a Discord post.
+`patch_thread` (tag, archive and lock changes) publishes no text or media, and the Control Plane rejects a delivery leg without published output with a permanent 422. The Board therefore creates no projection intent for it, and the drain closes any older `patch_thread` intent locally with `{"skipped":"metadata_only"}` ahead of budgeted work, so it never retries, never spends drain budget, and never blocks the intents behind it. A skip is not a feed acknowledgment.
 The API URL is `BURSAWATCH_PUBLICATION_CONTROL_PLANE_URL`, and the scoped
 credential path is `IDX_SWING_PLAN_BOARD_PUBLICATION_TOKEN_FILE`.
 
