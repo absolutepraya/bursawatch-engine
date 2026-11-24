@@ -67,7 +67,7 @@ def _publication_identity(owner_id: str, owner_key: str) -> str:
     return identity(owner_id, owner_key)
 
 
-@pytest.mark.parametrize('action', ['create_thread', 'post_source_reply', 'edit_starter', 'patch_thread'])
+@pytest.mark.parametrize('action', ['create_thread', 'post_source_reply', 'edit_starter'])
 def test_valid_typed_receipt_projects_saved_board_action_without_discord_send(monkeypatch, tmp_path, action):
     from bursawatch_discord_delivery import OperationReceipt
     _enable(monkeypatch)
@@ -194,6 +194,42 @@ def test_board_lifecycle_intent_and_incomplete_outbox(monkeypatch, tmp_path):
     store.complete_outbox(completed.id, completed.claim_token, {}, at(6))
 
     rows = store.all_publication_intents()
-    lifecycle_row = next(row for row in rows if row["owner_key"] == "board:lifecycle:complete")
-    assert lifecycle_row["snapshot"]["parent_publication_id"] == projection.publication_id(starter_key)
+    assert not any(row["owner_key"] == "board:lifecycle:complete" for row in rows)  # metadata-only: no intent
     assert any(row["owner_key"] == "board:lifecycle:pending" for row in rows)
+
+
+def test_legacy_metadata_only_intent_is_closed_locally_without_calling_the_feed(monkeypatch, tmp_path):
+    import json
+    import sqlite3
+    _enable(monkeypatch)
+    store = BoardStore(tmp_path / 'board.sqlite3')
+    episode_id, starter_key = _completed_starter(store)
+    starter = next(row for row in store.all_publication_intents() if row['owner_key'] == starter_key)
+    legacy = dict(starter['snapshot'], owner_key='legacy:patch', _operation='patch_thread')
+    with sqlite3.connect(tmp_path / 'board.sqlite3') as connection:
+        connection.execute(
+            "INSERT INTO publication_intents (owner_key, outbox_id, episode_id, snapshot_json, next_attempt_at) VALUES (?, ?, ?, ?, ?)",
+            ('legacy:patch', 99999, episode_id, json.dumps(legacy), '2026-09-30T00:00:00+00:00'))
+    calls = []
+
+    class Budget:
+        def allow(self):
+            calls.append('allow')
+            return False  # would stop the drain if the legacy intent were charged
+
+    class Api:
+        def submit(self, snapshot):
+            calls.append(snapshot['owner_key'])
+            raise AssertionError('metadata-only intent must not be submitted')
+        def checkpoint(self, comparison):
+            return comparison
+
+    class Delivery:
+        def status(self, key):
+            raise AssertionError('no receipt lookup for a metadata-only intent')
+
+    result = projection.drain(store, at(), publication_client=Api(), delivery_owner=Delivery(), budget=Budget())
+    legacy_row = next(row for row in store.all_publication_intents() if row['owner_key'] == 'legacy:patch')
+    assert legacy_row['ack'] == {'skipped': 'metadata_only'}
+    assert 'legacy:patch' not in calls
+    assert result['accepted'] == 0

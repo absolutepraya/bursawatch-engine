@@ -664,8 +664,8 @@ class BoardStore:
                 (json.dumps(dict(completion), sort_keys=True), _timestamp(completed_at), operation_id),
             )
             if _publication_enabled(completed_at) and operation["operation"] in {
-                "create_thread", "edit_starter", "post_source_reply", "post_history_reply", "patch_thread"
-            }:
+                "create_thread", "edit_starter", "post_source_reply", "post_history_reply"
+            }:  # patch_thread only changes thread metadata and publishes no text or media, which the feed rejects
                 self._insert_publication_intent(connection, operation, completion, completed_at)
             connection.execute(
                 """UPDATE episodes SET quiet_started_at = ?
@@ -823,6 +823,15 @@ class BoardStore:
                 raise StoreBlockedError("Board publication acknowledgment conflicts with saved identity")
             connection.execute(
                 "UPDATE publication_intents SET ack_json = ?, last_error = NULL WHERE owner_key = ?",
+                (encoded, owner_key),
+            )
+
+    def skip_publication_intent(self, owner_key: str, reason: str) -> None:
+        """Close an intent that can never be published, without claiming the feed accepted it."""
+        encoded = json.dumps({"skipped": reason}, sort_keys=True, separators=(",", ":"))
+        with self._transaction() as connection:
+            connection.execute(
+                "UPDATE publication_intents SET ack_json = ?, last_error = NULL WHERE owner_key = ? AND ack_json IS NULL",
                 (encoded, owner_key),
             )
 

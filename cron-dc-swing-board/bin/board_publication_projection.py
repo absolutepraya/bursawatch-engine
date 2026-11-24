@@ -151,7 +151,16 @@ def drain(store: BoardStore, now: datetime, *, publication_client: Any | None = 
     except Exception:
         return {"accepted": 0, "pending": len(store.all_publication_intents())}
     accepted = 0
+    queue = []
     for saved in store.pending_publication_intents(now):
+        if saved["snapshot"].get("_operation") == "patch_thread":
+            # Metadata-only (tag/archive) actions publish no text or media and the feed rejects them
+            # permanently. Close them locally, ahead of any budgeted work, so they neither retry nor
+            # starve the intents behind them.
+            store.skip_publication_intent(saved["owner_key"], "metadata_only")
+        else:
+            queue.append(saved)
+    for saved in queue:
         if budget is not None and not budget.allow():
             # A refused budget ends the run; the checkpoint is another external call.
             return {"accepted": accepted, "pending": _pending(store)}

@@ -209,7 +209,7 @@ def test_publication_projection_stops_at_the_budget_and_keeps_intents(tmp_path, 
     monkeypatch.setenv("IDX_SWING_PLAN_BOARD_PUBLICATION_ENABLED", "1")
     monkeypatch.setenv("BURSAWATCH_PUBLICATION_CUTOVER_AT", "2026-09-30T00:00:00Z")
     store = BoardStore(tmp_path / "board.sqlite3")
-    intents = [{"owner_key": f"owner:{index}", "snapshot": {"_operation": "patch_thread", "_payload": {},
+    intents = [{"owner_key": f"owner:{index}", "snapshot": {"_operation": "post_source_reply", "_payload": {},
                                                            "owner_key": f"owner:{index}"}} for index in range(12)]
     monkeypatch.setattr(store, "pending_publication_intents", lambda _now: list(intents))
     monkeypatch.setattr(store, "fail_publication_intent", lambda *_a, **_k: None)
