@@ -726,6 +726,41 @@ async def _oversized_telegram_media_stops_during_download_before_upload(tmp_path
     assert json.loads((cursor.parent / "blocked-media.json").read_text())["message_id"] == 11
 
 
+def test_oversized_non_image_attachment_is_omitted_without_halting_the_endpoint(tmp_path):
+    # Regression: Phintraco message 36587 (2026-11-24) was a 20,104,350-byte
+    # promotional video/mp4. Failing closed on it pinned the cursor and stopped
+    # every later Phintraco plan from reaching the Swing Board for days.
+    async def check():
+        inbox = FakeInbox()
+        await ingest_endpoint(FakeTelegram([message(10)]), ENDPOINT, tmp_path, inbox, NOW)
+        video = message(11, "Market Outlook 2027 talking head")
+        video.photo = None
+        video.media = object()
+        video.document = SimpleNamespace(mime_type="video/mp4", size=20_104_350)
+        plan = message(12, "BUY BBCA")
+        client = FakeTelegram([video, plan])
+
+        async def no_download(*args, **kwargs):
+            pytest.fail("oversized attachment was downloaded")
+
+        client.download_media = no_download
+        media_store = FakeMediaStore()
+        result = await ingest_endpoint(client, ENDPOINT, tmp_path, inbox, NOW, media_store=media_store)
+
+        assert result["accepted"] == 2
+        assert result["cursor"] == 12
+        assert media_store.uploads == []
+        omitted = inbox.accepted[-2]
+        assert omitted["provider_event_id"] == "11"
+        assert omitted["payload"]["attachment_omitted_reason"] == "exceeds_media_bound"
+        assert omitted["media_refs"] == []
+        assert omitted["media_required"] is False
+        assert inbox.accepted[-1]["provider_event_id"] == "12"
+        assert not (tmp_path / "telegram-phintraprofits" / "blocked-media.json").exists()
+
+    asyncio.run(check())
+
+
 def test_effective_catalog_rejects_unknown_enabled_endpoint():
     row = {"platform": "telegram", "enabled": True, "endpoint_id": "telegram:phintraprofits", "capability_id": "trading_plans", "verification_status": "verified", "provider_id": "1444713822", "publisher_id": "phintraco", "address": "phintraprofits"}
     assert endpoints({"revision": 5, "subscriptions": [row]})["telegram:phintraprofits"]["capabilities"] == {"trading_plans"}
@@ -1019,11 +1054,28 @@ def test_heartbeat_is_compact_sanitized_and_uses_shared_delivery_owner():
 
 def test_heartbeat_warns_when_endpoint_is_blocked():
     now = datetime(2026, 9, 24, 0, 15, tzinfo=timezone.utc)
-    result = {"source": [{"endpoint_id": "telegram:phintraprofits", "status": "blocked"}], "work": []}
+    result = {"source": [{"endpoint_id": "telegram:phintraprofits", "status": "blocked", "stage": "upload_media"}], "work": []}
 
     assert format_heartbeat(now, result) == (
         "🫀 bursawatch-tg-source-ingest · 07:15 WIB · "
-        "endpoints=1 accepted=0 work=0 pending=0 agent=none ⚠️"
+        "endpoints=1 accepted=0 work=0 pending=0 agent=none blocked=phintraprofits@upload_media ⚠️"
+    )
+
+
+def test_heartbeat_names_every_unhealthy_endpoint_with_sanitized_tokens():
+    now = datetime(2026, 9, 24, 0, 15, tzinfo=timezone.utc)
+    result = {
+        "source": [
+            {"endpoint_id": "telegram:tuntunsekuritas", "accepted": 1},
+            {"endpoint_id": "telegram:phintasprofits", "status": "blocked"},
+            {"endpoint_id": "telegram:kelas <@1>", "status": "auth_required", "stage": "read messages!"},
+        ],
+        "work": [],
+    }
+
+    assert format_heartbeat(now, result) == (
+        "🫀 bursawatch-tg-source-ingest · 07:15 WIB · "
+        "endpoints=3 accepted=1 work=0 pending=0 agent=none blocked=phintasprofits,kelas1@readmessages ⚠️"
     )
 
 

@@ -266,15 +266,30 @@ def format_heartbeat(now: datetime, result: dict[str, Any]) -> str:
     target = result.get("agent_target", "none")
     if target not in {"none", *AGENT_OWNERS}:
         target = "invalid"
-    warning = bool(result.get("agent_dispatch_warning") or result.get("owner_delivery_warning")) or pending > 0 or any(
-        type(item) is dict and item.get("status") in {"resilience_blocked", "auth_required", "blocked"}
-        for item in source
-    )
+    unhealthy = [
+        item for item in source
+        if type(item) is dict and item.get("status") in {"resilience_blocked", "auth_required", "blocked"}
+    ]
+    warning = bool(result.get("agent_dispatch_warning") or result.get("owner_delivery_warning")) or pending > 0 or bool(unhealthy)
+    blocked = ",".join(_blocked_token(item) for item in unhealthy)
+    blocked_suffix = f" blocked={blocked}" if blocked else ""
     suffix = " ⚠️" if warning else ""
     return (
         f"🫀 {WATCHER} · {now.astimezone(WIB):%H:%M} WIB · "
-        f"endpoints={endpoint_count} accepted={accepted} work={len(work)} pending={pending} agent={target}{suffix}"
+        f"endpoints={endpoint_count} accepted={accepted} work={len(work)} pending={pending} agent={target}{blocked_suffix}{suffix}"
     )
+
+
+def _heartbeat_word(value: object) -> str:
+    # Heartbeat tokens carry only bounded identifier characters, never text.
+    return "".join(ch for ch in value if ch.isascii() and (ch.isalnum() or ch == "_"))[:40] if type(value) is str else ""
+
+
+def _blocked_token(item: dict[str, Any]) -> str:
+    endpoint = item.get("endpoint_id")
+    name = _heartbeat_word(endpoint.split(":", 1)[-1] if type(endpoint) is str else None) or "unknown"
+    stage = _heartbeat_word(item.get("stage"))
+    return f"{name}@{stage}" if stage else name
 
 
 def format_fatal(now: datetime) -> str:
