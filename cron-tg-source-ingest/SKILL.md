@@ -118,7 +118,9 @@ marker when degraded. A blocked, auth-required, or resilience-blocked endpoint
 adds `blocked=<handle>[@<stage>]` (comma-separated, identifier characters only)
 before the marker, so a stalled source is named instead of hidden in a generic
 warning. Fatal output uses
-`❌ bursawatch-tg-source-ingest · HH:MM WIB · failed: <reason>`.
+`❌ bursawatch-tg-source-ingest · HH:MM WIB · failed: <reason>`. The runner
+also writes `fatal error_type=<ExceptionClass>` to its private stderr log,
+never the exception message, so a fatal run can be diagnosed afterwards.
 
 The deployable runtime wrapper is
 `bin/bursawatch-tg-source-ingest.sh`. Its normal entry point reads only the

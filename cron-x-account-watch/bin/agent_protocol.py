@@ -175,7 +175,7 @@ def instruction_for(profile: Profile, relevance_guard_required: bool = False) ->
         )
     title_and_summary = news_format.WRITING_INSTRUCTION + news_format.ITEMS_INSTRUCTION
     if profile.enable_llm_title and profile.enable_llm_summary and profile.enable_llm_routing:
-        title_and_summary += "For relevant news, submit event_key, is_relevant when required, and items with one to sixteen objects containing title, summary, route, subject, ticker. Use the scalar schema for a swing item. "
+        title_and_summary += "For relevant news, submit event_key, is_relevant when required, and items with one to sixteen objects containing title, summary, route, subject, ticker. A swing setup is never an items list: submit exactly event_key, is_relevant when required, title, summary, and route id_stocks_swing, with no items, subject, or ticker. "
     profile_instruction = (
         f"Profile-specific instruction: {profile.additional_prompt_instruction} "
         if profile.additional_prompt_instruction else ""
@@ -489,9 +489,40 @@ def validate_route(profile: Profile, value: object) -> str:
     return normalize_route(profile, value)
 
 
+SWING_ROUTE = "id_stocks_swing"
+NEWS_ONLY_FIELDS = ("subject", "ticker")
+
+
+def _is_swing_route(value: object) -> bool:
+    return isinstance(value, str) and ROUTE_ALIASES.get(value, value) == SWING_ROUTE
+
+
+def _swing_scalar_payload(profile: Profile, payload: dict) -> dict:
+    """Normalize a Swing setup submitted in the news shape to the scalar schema.
+
+    Agents sometimes wrap one chart setup in the news `items` list or add the
+    news-only subject and ticker. Swing never uses those fields, so the
+    submission is reduced to the scalar schema instead of being rejected.
+    A Swing item mixed with other items is left for the strict checks.
+    """
+    if not profile.enable_llm_routing:
+        return payload
+    if "items" in payload:
+        items = payload["items"]
+        if type(items) is not list or len(items) != 1 or type(items[0]) is not dict or not _is_swing_route(items[0].get("route")):
+            return payload
+        if set(payload) - {"event_key", "is_relevant", "items"} or set(items[0]) - {"title", "summary", "route", *NEWS_ONLY_FIELDS}:
+            return payload
+        payload = {**{key: value for key, value in payload.items() if key != "items"}, **items[0]}
+    if _is_swing_route(payload.get("route")):
+        payload = {key: value for key, value in payload.items() if key not in NEWS_ONLY_FIELDS}
+    return payload
+
+
 def validate_submission(profile: Profile, payload: object, *, subject_required: bool = False, company_required: bool = False, source_text: str | None = None) -> dict:
     if type(payload) is not dict:
         raise ValueError("analysis submission must be an object")
+    payload = _swing_scalar_payload(profile, payload)
     if "items" in payload:
         if not (profile.enable_llm_title and profile.enable_llm_summary and profile.enable_llm_routing):
             raise ValueError("items require generated titles, summaries and routing")
@@ -529,7 +560,7 @@ def validate_submission(profile: Profile, payload: object, *, subject_required: 
         expected.add("summary")
     if profile.enable_llm_routing:
         expected.add("route")
-    semantic = payload.get("route") != "id_stocks_swing" and profile.enable_llm_routing and (subject_required or "subject" in payload)
+    semantic = not _is_swing_route(payload.get("route")) and profile.enable_llm_routing and (subject_required or "subject" in payload)
     if semantic:
         expected |= {"subject", "ticker"}
     if set(payload) != expected:

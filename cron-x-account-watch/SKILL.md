@@ -146,9 +146,13 @@ When generated title, summary, and routing are enabled, relevant news uses
 `{"event_key":"<supplied key>","is_relevant":true,"items":[{"title":"GIAA: Rencana rights issue","summary":"GIAA akan melakukan rights issue.","route":"id_stocks_news","ticker":"GIAA","subject":{"kind":"company","name":"GIAA","evidence":"GIAA akan melakukan rights issue"}}]}`.
 Include `is_relevant` only when requested. Return one to sixteen items, each
 with `title`, `summary`, `route`, `subject`, and `ticker`. Every item selects one configured
-news route. A Swing item or a profile with only some generated fields enabled
-uses the existing scalar schema. Scalar submissions remain accepted for
-already leased events. Irrelevant events use only the key and false decision.
+news route. A Swing setup is never an `items` list: submit exactly
+`{"event_key":"<supplied key>","is_relevant":true,"title":"BUMI: Menembus resisten","summary":"...","route":"id_stocks_swing"}`
+with no `subject` or `ticker`. The validator normalizes a single Swing item
+wrapped in `items`, or one carrying news-only `subject`/`ticker`, to that
+scalar schema; a Swing item mixed with other items is rejected. A profile with
+only some generated fields enabled also uses the scalar schema. Scalar
+submissions remain accepted for already leased events. Irrelevant events use only the key and false decision.
 
 ## Optional image context
 

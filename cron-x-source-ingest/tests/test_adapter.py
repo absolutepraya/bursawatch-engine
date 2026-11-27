@@ -1789,3 +1789,20 @@ def test_generation_edge_fresh_generation_may_start_at_reviewed_revision_11(tmp_
     assert len(outcomes) == 11 and all(row["status"] == "bootstrapped" for row in outcomes)
     marker = json.loads((root / "catalog-revision.json").read_text())
     assert marker["revision"] == 11 and "edge" not in marker["generation"]
+
+
+def test_fatal_run_logs_only_the_exception_type_for_diagnosis(monkeypatch, capsys):
+    # Fatal runs were undiagnosable: the cause was discarded with `from None`.
+    posted = []
+    monkeypatch.setattr(sys, "argv", ["runner.py"])
+    monkeypatch.delenv("BURSAWATCH_X_SOURCE_NO_POST", raising=False)
+    monkeypatch.setattr(runner, "load_watch_config_for_run", lambda: (_ for _ in ()).throw(TimeoutError("secret-detail https://x")))
+    monkeypatch.setattr(runner, "post_heartbeat", lambda content, now: posted.append(content))
+
+    with pytest.raises(RuntimeError, match="source processing failed"):
+        runner.main()
+
+    err = capsys.readouterr().err
+    assert "fatal error_type=TimeoutError" in err
+    assert "secret-detail" not in err and "https://x" not in err
+    assert posted and posted[0].endswith("failed: source processing failed")
