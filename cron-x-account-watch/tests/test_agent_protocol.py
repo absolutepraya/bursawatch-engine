@@ -423,6 +423,48 @@ def test_submission_accepts_only_configured_routes(config_path, profile_payload)
         agent_protocol.validate_submission(profile, payload)
 
 
+def _swing_profile(config_path, profile_payload):
+    profile_payload["enable_llm_title"] = True
+    profile_payload["enable_llm_summary"] = True
+    profile_payload["enable_llm_routing"] = True
+    profile_payload["discord_channels"] = [
+        {"key": "macro_news", "channel_id": "1531655369884045382", "description": "Macro"},
+        {"key": "id_stocks_news", "channel_id": "1525102508714889257", "description": "IDX"},
+        {"key": "id_stocks_swing", "channel_id": "1525102458253217803", "description": "IDX swing"},
+    ]
+    config_path.write_text(__import__("json").dumps({"version": 1, "profiles": [profile_payload]}), encoding="utf-8")
+    return __import__("config").load_watch_config(config_path).profiles[0]
+
+
+SWING_SCALAR = {"event_key": "doktermarket:2126247058868986133", "is_relevant": True, "title": "BUMI: Menembus Resisten", "summary": "*(Ringkasan)* BUMI menembus resisten dan berpeluang melanjutkan penguatan.", "route": "id_stocks_swing"}
+
+
+def test_swing_setup_wrapped_in_news_items_is_normalized_to_the_scalar_swing_schema(config_path, profile_payload):
+    # Regression: since 2026-11-18 the agent submitted Dokter Market chart
+    # setups in the news `items` shape with subject/ticker. The strict schema
+    # rejected all three attempts and the Swing post never reached the Board.
+    profile = _swing_profile(config_path, profile_payload)
+    item = {key: SWING_SCALAR[key] for key in ("title", "summary", "route")}
+    payload = {"event_key": SWING_SCALAR["event_key"], "is_relevant": True, "items": [{**item, "subject": {"company": {"name": "Bumi Resources"}}, "ticker": "BUMI"}]}
+
+    assert agent_protocol.validate_submission(profile, payload) == SWING_SCALAR
+
+
+def test_scalar_swing_setup_ignores_news_only_subject_and_ticker(config_path, profile_payload):
+    profile = _swing_profile(config_path, profile_payload)
+    payload = {**SWING_SCALAR, "subject": {"company": {"name": "Bumi Resources"}}, "ticker": "BUMI"}
+
+    assert agent_protocol.validate_submission(profile, payload) == SWING_SCALAR
+
+
+def test_swing_setup_mixed_with_news_items_is_still_rejected(config_path, profile_payload):
+    profile = _swing_profile(config_path, profile_payload)
+    swing = {key: SWING_SCALAR[key] for key in ("title", "summary", "route")}
+    news = {"title": "BUMI: Laba Naik", "summary": "*(Ringkasan)* Laba naik.", "route": "id_stocks_news", "subject": {}, "ticker": ""}
+    with pytest.raises(ValueError):
+        agent_protocol.validate_submission(profile, {"event_key": SWING_SCALAR["event_key"], "is_relevant": True, "items": [swing, news]})
+
+
 def test_agent_routing_instruction_prioritizes_market_thesis_over_company_examples(config_path, profile_payload):
     profile_payload["enable_llm_routing"] = True
     profile_payload["discord_channels"].append({"key": "id_stocks_news", "channel_id": "1525102508714889257", "description": "IDX"})

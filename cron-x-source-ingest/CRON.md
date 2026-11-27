@@ -19,7 +19,9 @@ Every run sends a heartbeat through the shared
 Discord Delivery Owner to `#hermes`, including empty polls. The format is
 `🫀 bursawatch-x-source-ingest · HH:MM WIB · endpoints=N accepted=N work=N pending=N`
 with `⚠️` for blocked source endpoints or pending work. Fatal runs use
-`❌ bursawatch-x-source-ingest · HH:MM WIB · failed: source processing failed`.
+`❌ bursawatch-x-source-ingest · HH:MM WIB · failed: source processing failed`. The runner
+also writes `fatal error_type=<ExceptionClass>` to its private stderr log,
+never the exception message, so a fatal run can be diagnosed afterwards.
 
 Each verified configured X account has its own future-only cursor and
 `SourceEventHandoff`. A nontruncated page, or a truncated page that still

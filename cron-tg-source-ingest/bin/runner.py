@@ -386,13 +386,21 @@ async def _run_live() -> dict[str, Any]:
         await telegram.disconnect()
 
 
+def _error_type(error: BaseException) -> str:
+    name = type(error).__name__
+    return name if name.isidentifier() and name.isascii() else "Exception"
+
+
 def main() -> int:
     if os.environ.get("BURSAWATCH_TG_SOURCE_NO_POST") == "1":
         raise RuntimeError("use injected synthetic clients for no-post validation")
     now = datetime.now(timezone.utc)
     try:
         result = asyncio.run(_run_live())
-    except Exception:
+    except Exception as error:
+        # Only the exception class reaches the private log, never its message,
+        # so a fatal run can be diagnosed without exposing source data.
+        print(f"fatal error_type={_error_type(error)}", file=sys.stderr)
         try:
             post_heartbeat(format_fatal(now), now)
         except Exception:

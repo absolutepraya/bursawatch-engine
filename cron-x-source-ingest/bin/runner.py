@@ -125,6 +125,11 @@ def _media_client():
         return None
 
 
+def _error_type(error: BaseException) -> str:
+    name = type(error).__name__
+    return name if name.isidentifier() and name.isascii() else "Exception"
+
+
 def main() -> int:
     if sys.argv[1:] == ["--verify-synthetic"]:
         return verify_synthetic()
@@ -140,7 +145,10 @@ def main() -> int:
         source = run_once(snapshot, loaded.config.profiles, state_root("BURSAWATCH_X_SOURCE", WATCHER), inbox, now, media_store=_media_client())
         work = process_pending(inbox)
         result = {"source": source, "work": work}
-    except Exception:
+    except Exception as error:
+        # Only the exception class reaches the private log, never its message,
+        # so a fatal run can be diagnosed without exposing source data.
+        print(f"fatal error_type={_error_type(error)}", file=sys.stderr)
         try:
             post_heartbeat(format_fatal(now), now)
         except Exception:

@@ -1116,3 +1116,22 @@ def test_heartbeat_requires_delivery_after_shared_observation(final_status):
 
     with pytest.raises(RuntimeError, match="heartbeat delivery is incomplete"):
         post_heartbeat(format_heartbeat(NOW, {"source": [], "work": []}), NOW, delivery_client=FakeDelivery())
+
+
+def test_fatal_run_logs_only_the_exception_type_for_diagnosis(monkeypatch, capsys):
+    posted = []
+    monkeypatch.delenv("BURSAWATCH_TG_SOURCE_NO_POST", raising=False)
+
+    async def failing():
+        raise ConnectionResetError("secret-detail 149.154.167.51")
+
+    monkeypatch.setattr(source_runner, "_run_live", failing)
+    monkeypatch.setattr(source_runner, "post_heartbeat", lambda content, now: posted.append(content))
+
+    with pytest.raises(RuntimeError, match="source processing failed"):
+        source_runner.main()
+
+    err = capsys.readouterr().err
+    assert "fatal error_type=ConnectionResetError" in err
+    assert "secret-detail" not in err and "149.154" not in err
+    assert posted and posted[0].endswith("failed: source processing failed")
