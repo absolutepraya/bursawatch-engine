@@ -114,7 +114,10 @@ existing domain owners and shared Discord Delivery Owner. It emits one
 operational heartbeat to `#hermes` (`1505162000420835388`) on every scheduled
 run, including no-hit and no-op runs. The heartbeat uses
 `🫀 bursawatch-tg-source-ingest · HH:MM WIB · <tokens>` and a sanitized warning
-marker when degraded. Fatal output uses
+marker when degraded. A blocked, auth-required, or resilience-blocked endpoint
+adds `blocked=<handle>[@<stage>]` (comma-separated, identifier characters only)
+before the marker, so a stalled source is named instead of hidden in a generic
+warning. Fatal output uses
 `❌ bursawatch-tg-source-ingest · HH:MM WIB · failed: <reason>`.
 
 The deployable runtime wrapper is

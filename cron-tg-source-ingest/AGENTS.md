@@ -103,7 +103,12 @@ in Telegram message order; a failed earlier message blocks later messages
 until it succeeds or an admin explicitly suppresses it. Telegram media
 blocks the endpoint before cursor advancement only for an actual photo or
 document attachment when its type is unsupported, the media service is
-unavailable, or durable upload fails. Web-page link previews
+unavailable, or durable upload fails. A non-image attachment (video, audio,
+or document) whose Telegram size metadata exceeds the 15 MiB media bound is
+never downloaded: its text event is accepted with
+`attachment_omitted_reason: "exceeds_media_bound"`, no media refs, and
+`media_required: false`, so one oversized promotional clip cannot halt the
+endpoint. Photos and image documents still fail closed. Web-page link previews
 (`MessageMediaWebPage`) remain part of the text event and are not treated as
 file attachments. A local
 `blocked-media.json` records only source identity and media type to diagnose a
