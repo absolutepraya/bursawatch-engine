@@ -560,7 +560,7 @@ def validate_submission(profile: Profile, payload: object, *, subject_required: 
         expected.add("summary")
     if profile.enable_llm_routing:
         expected.add("route")
-    semantic = payload.get("route") != "id_stocks_swing" and profile.enable_llm_routing and (subject_required or "subject" in payload)
+    semantic = not _is_swing_route(payload.get("route")) and profile.enable_llm_routing and (subject_required or "subject" in payload)
     if semantic:
         expected |= {"subject", "ticker"}
     if set(payload) != expected:

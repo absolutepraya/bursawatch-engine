@@ -584,3 +584,10 @@ def test_indonesian_text_with_quotes_and_names_is_accepted(text):
 def test_title_in_another_language_is_rejected():
     with pytest.raises(ValueError, match="Bahasa Indonesia"):
         agent_protocol.validate_title("Ações de cibersegurança avançam após alerta sobre ataques")
+
+
+def test_swing_route_alias_skips_the_news_subject_gate(config_path, profile_payload):
+    profile = _swing_profile(config_path, profile_payload)
+    payload = {**SWING_SCALAR, "route": "id_stock_swing"}
+
+    assert agent_protocol.validate_submission(profile, payload, subject_required=True) == SWING_SCALAR
